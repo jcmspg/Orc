@@ -15,16 +15,21 @@ python3 -m venv .venv
 cd web && npm install
 ```
 
-Give Claude Code a credential for use inside the black boxes. Your `~/.claude` is never mounted, so
-the boxes need a token of their own:
+Give the agents credentials for use inside the black boxes. Your `~/.claude` and `~/.cursor` are
+never mounted, so the boxes need tokens of their own. Set up whichever runtimes you'll use:
 
 ```bash
+# Claude Code (peons trained with runtime "claude")
 claude setup-token                       # prints a long-lived token for your subscription
 export CLAUDE_CODE_OAUTH_TOKEN=...       # or ANTHROPIC_API_KEY=... for API billing
+
+# Cursor (peons trained with runtime "cursor")
+# Create a user API key at https://cursor.com/dashboard/api, then:
+export CURSOR_API_KEY=...
 ```
 
-Keep the export in a private file outside the repo (for example `~/.config/orc/env`, mode 600)
-sourced from your shell rc. orc passes the variable into boxes by name, never on a command line.
+Keep the exports in a private file outside the repo (for example `~/.config/orc/env`, mode 600)
+sourced from your shell rc. orc passes the variables into boxes by name, never on a command line.
 
 ## Run
 
@@ -54,14 +59,16 @@ zoom, middle-drag or `Q`/`E` to rotate, `H` to recentre, `Enter` to give orders,
 - One container per job, from the `orc-peon` image (Node, git, Claude Code), running as a non-root
   user with all capabilities dropped, 4 GB memory, 2 CPUs. No host directories are mounted.
 - The repo goes in as a `git bundle` of your current HEAD (uncommitted changes are not included).
-- Inside, Claude Code runs with `--dangerously-skip-permissions`: it can do anything in the box, and
-  the box is thrown away afterwards.
+- Inside, agents run with all permissions (Claude Code `--dangerously-skip-permissions`, Cursor
+  `--force`): they can do anything in the box, and the box is thrown away afterwards.
 - Work comes out as a bundle and is fetched into your repo as a branch. Nothing else on your machine
   is written, and your checked-out branch and working tree are never touched.
 - Remote repo URLs work for cloning; their finished branches are left as bundles in `~/.cache/orc/bundles`.
 
-Runtimes: only `claude` runs inside the boxes so far. Peons trained with cursor, copilot or codex
-fail with a clear message until those CLIs are added to the image.
+Runtimes: `claude` (Claude Code) and `cursor` (Cursor agent CLI, run with `--force`) work inside the
+boxes. copilot and codex are greyed out in the Barracks until their CLIs are added to the image.
+The default village (Ozgar, two coders, a reviewer) runs on claude; train extra peons with cursor
+from the Barracks, or mix them, since every peon picks its own runtime.
 
 ## Model providers (Python library)
 

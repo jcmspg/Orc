@@ -66,6 +66,51 @@ class ClaudeCodeRuntime:
         return str(result.get("result", ""))
 
 
+class CursorRuntime:
+    """Cursor's agent CLI in print mode, authenticated with a user API key."""
+
+    name = "cursor"
+    CREDENTIALS = ("CURSOR_API_KEY",)
+
+    async def run(self, box: Sandbox, prompt: str, on_log: LogFn, *, kind: str, hints: dict[str, Any]) -> str:
+        if not os.environ.get("CURSOR_API_KEY"):
+            raise RuntimeError(
+                "Cursor has no credentials inside the black box. Create a user API key at "
+                "https://cursor.com/dashboard/api, then export CURSOR_API_KEY before starting orc."
+            )
+        result: dict[str, Any] = {}
+        noise: list[str] = []
+
+        def on_line(line: str) -> None:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                if line.strip():
+                    noise.append(line)  # errors arrive as plain text on stderr
+                return
+            kind_ = msg.get("type")
+            if kind_ == "assistant":
+                for block in msg.get("message", {}).get("content", []):
+                    if block.get("type") == "text" and block.get("text", "").strip():
+                        on_log(_first_line(block["text"]), "info")
+            elif kind_ == "tool_call" and msg.get("subtype") == "started":
+                on_log(describe_cursor_tool(msg.get("tool_call") or {}), "cmd")
+            elif kind_ == "result":
+                result.update(msg)
+
+        argv = [
+            "cursor-agent", "-p", prompt,
+            "--output-format", "stream-json",
+            # Run everything without prompts; the box is the sandbox, so Cursor's own is off.
+            "--force", "--trust", "--sandbox", "disabled",
+        ]
+        code, _ = await box.exec(argv, env_names=self.CREDENTIALS, on_line=on_line, check=False)
+        if code != 0 or result.get("is_error") or not result:
+            detail = "\n".join(noise[-5:]) or result.get("result") or f"exit code {code}"
+            raise RuntimeError(f"Cursor failed: {_first_line(str(detail))}")
+        return str(result.get("result", ""))
+
+
 class UnavailableRuntime:
     def __init__(self, name: str) -> None:
         self.name = name
@@ -111,6 +156,8 @@ def runtime_for(backend: str) -> Runtime:
         return DummyRuntime()
     if backend == "claude":
         return ClaudeCodeRuntime()
+    if backend == "cursor":
+        return CursorRuntime()
     return UnavailableRuntime(backend)
 
 
@@ -124,6 +171,24 @@ def describe_tool(name: str, args: dict[str, Any]) -> str:
     if name in ("Grep", "Glob"):
         return f"search {args.get('pattern', '')}"
     return name
+
+
+def describe_cursor_tool(call: dict[str, Any]) -> str:
+    """Cursor wraps each call as {"<name>ToolCall": {"args": {...}}} or {"function": {...}}."""
+    if "function" in call:
+        return str(call["function"].get("name", "tool"))
+    for key, body in call.items():
+        args = (body or {}).get("args") or {}
+        name = key.removesuffix("ToolCall")
+        if "command" in args:
+            return f"$ {_first_line(str(args['command']))}"
+        if "path" in args:
+            verb = "read" if name.startswith("read") else "search" if name in ("grep", "glob") else "edit"
+            return f"{verb} {args['path']}"
+        if "pattern" in args:
+            return f"search {args['pattern']}"
+        return name
+    return "tool"
 
 
 def _first_line(text: str, limit: int = 160) -> str:

@@ -62,8 +62,12 @@ function TopBar() {
   );
 }
 
+/** Runtimes the real engine can run inside black boxes (the simulation fakes them all). */
+const BOX_READY: Record<Backend, boolean> = { claude: true, cursor: true, copilot: false, codex: false };
+
 function Barracks() {
   const [backend, setBackend] = useState<Backend>("claude");
+  const sim = useBoard((s) => s.link === "sim");
   return (
     <div className="barracks panel">
       <h2>Barracks</h2>
@@ -76,7 +80,9 @@ function Barracks() {
         Runtime
         <select value={backend} onChange={(e) => setBackend(e.target.value as Backend)}>
           {BACKENDS.map((b) => (
-            <option key={b}>{b}</option>
+            <option key={b} value={b} disabled={!sim && !BOX_READY[b]}>
+              {sim || BOX_READY[b] ? b : `${b} (not yet)`}
+            </option>
           ))}
         </select>
       </label>
