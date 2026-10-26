@@ -1,0 +1,28 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging / build output
+*.egg-info/
+build/
+dist/
+
+# Node / desktop app
+node_modules/
+
+# Secrets and local config (API keys live here, never commit them)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store

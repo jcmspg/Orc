@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orc"
+version = "0.1.0"
+description = "Orchestrator for AI agents with different personas, driven by an AI provider API."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["anthropic>=2.3,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+orc = "orc.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,567 @@
+:root {
+  --wood: rgba(34, 22, 12, 0.93);
+  --wood-edge: #8a6b3f;
+  --trim: #d9b45a;
+  --parchment: #f5ecd6;
+  --muted: #b8a888;
+  --ok: #5fae3a;
+  --warn: #ffd23f;
+  --bad: #ff5a4f;
+  --heading: Georgia, "Times New Roman", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: #2a3b1c;
+  color: var(--parchment);
+  /* HUD text scales gently with the window. */
+  font: clamp(11px, 0.4vw + 7px, 14px) / 1.4 system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+.game {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* Own stacking context: label z-indexes must never rise above the HUD. */
+  isolation: isolate;
+}
+.world-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  touch-action: none;
+}
+.world-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.select-box {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  border: 1.5px solid #9dff5c;
+  background: rgba(124, 252, 0, 0.1);
+  border-radius: 2px;
+}
+
+/* Labels floating over the 3D world. CSS2DRenderer owns the holder's
+   transform, so animations go on the inner element. */
+.w-name {
+  transform: translateY(14px);
+  font: 600 12px/1 var(--heading);
+  color: #fff8e6;
+  text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.w-name.selected {
+  color: #b9ff7a;
+}
+.w-bubble {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font: 700 16px/1 var(--heading);
+  background: #fff8e6;
+  color: #2b1d0e;
+  border: 2px solid #2b1d0e;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+}
+.w-bubble.s-thinking {
+  animation: w-pulse 1s ease-in-out infinite;
+}
+.w-bubble.s-reviewing {
+  background: #e9dcff;
+  color: #4b2d8f;
+  border-color: #4b2d8f;
+}
+.w-bubble.s-awaiting {
+  background: #ffd23f;
+  color: #3b2400;
+  border-color: #3b2400;
+  animation: w-bounce 0.7s ease-in-out infinite;
+}
+.w-bubble.s-failed {
+  background: #ff5a4f;
+  color: #fff;
+  border-color: #5a0f0a;
+}
+.w-voice {
+  opacity: 0;
+  font: 13px/1.2 var(--heading);
+  padding: 4px 9px;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #2b1d0e;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+.w-voice.show {
+  animation: w-say 2s ease-out forwards;
+}
+.w-float {
+  font: 700 20px/1 var(--heading);
+  white-space: nowrap;
+  text-shadow: 0 2px 4px #000;
+  animation: w-rise 1.6s ease-out forwards;
+}
+.w-float.gold {
+  color: #ffd94a;
+}
+@keyframes w-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes w-bounce {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes w-say {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  10%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes w-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+}
+
+.panel {
+  position: absolute;
+  background: var(--wood);
+  border: 2px solid var(--wood-edge);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px #1a0f05, 0 6px 18px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(217, 180, 90, 0.18);
+  padding: 10px 12px;
+}
+
+h2,
+h3 {
+  font-family: var(--heading);
+  color: var(--trim);
+  margin: 0 0 8px;
+  font-weight: normal;
+}
+h2 {
+  font-size: 18px;
+}
+h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 12px;
+}
+
+button {
+  font: inherit;
+  color: var(--parchment);
+  background: linear-gradient(#5a3d22, #3e2814);
+  border: 1px solid var(--wood-edge);
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--trim);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.ok {
+  background: linear-gradient(#4f8a2e, #34611c);
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--parchment);
+  background: #1a0f05;
+  border: 1px solid var(--wood-edge);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+input:focus,
+select:focus {
+  outline: 1px solid var(--trim);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.muted {
+  color: var(--muted);
+}
+.hint {
+  color: var(--muted);
+  margin: 4px 0 8px;
+}
+.warn {
+  color: var(--warn);
+}
+.bad {
+  color: var(--bad);
+}
+
+/* Top bar */
+.topbar {
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  white-space: nowrap;
+  padding: 6px 14px;
+}
+.brand {
+  font-family: var(--heading);
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  color: var(--trim);
+}
+.gold {
+  color: #ffd94a;
+  font-weight: 600;
+}
+.badge {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--wood-edge);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+/* Barracks */
+.barracks {
+  top: 12px;
+  left: 12px;
+  width: clamp(160px, 13vw, 210px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.barracks button {
+  text-align: left;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Unit panel */
+.unit {
+  top: 64px;
+  right: 12px;
+  bottom: 112px;
+  width: clamp(260px, 23vw, 380px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.unit.compact {
+  bottom: auto;
+}
+.unit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.role {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #1a0f05;
+}
+.meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+}
+.task {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: rgba(245, 236, 214, 0.07);
+  border-left: 3px solid var(--trim);
+}
+.pill {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #1a0f05;
+}
+.pending {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  background: rgba(255, 210, 63, 0.07);
+}
+.pending h3 {
+  margin-top: 0;
+  color: var(--warn);
+}
+.pending p {
+  margin: 0 0 6px;
+}
+.pending ul {
+  margin: 0;
+  padding-left: 18px;
+}
+code {
+  font: 12px/1.5 ui-monospace, monospace;
+  color: var(--parchment);
+}
+.log {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  font: 12px/1.5 ui-monospace, monospace;
+  background: #120a03;
+  border: 1px solid #3e2814;
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+.roster li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 4px;
+  border-bottom: 1px solid #3e2814;
+  cursor: pointer;
+}
+.roster li:hover {
+  background: rgba(245, 236, 214, 0.06);
+}
+.right {
+  margin-left: auto;
+}
+
+/* Toggle */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.track {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: #1a0f05;
+  border: 1px solid var(--wood-edge);
+  position: relative;
+  transition: background 0.15s;
+}
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s, background 0.15s;
+}
+.toggle input:checked + .track {
+  background: #34611c;
+}
+.toggle input:checked + .track .knob {
+  transform: translateX(16px);
+  background: var(--parchment);
+}
+.toggle input:focus-visible + .track {
+  outline: 1px solid var(--trim);
+}
+
+/* War log */
+.warlog {
+  left: 12px;
+  bottom: 12px;
+  width: clamp(240px, 22vw, 380px);
+  max-height: 200px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.warlog h3 {
+  margin-top: 0;
+}
+.warlog div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Command bar */
+.command {
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+}
+.command .to {
+  color: var(--muted);
+}
+.command input {
+  flex: 1;
+}
+
+/* Log levels */
+.l-cmd {
+  color: #9fd3ff;
+}
+.l-ok {
+  color: #9be37a;
+}
+.l-warn {
+  color: var(--warn);
+}
+.l-error {
+  color: var(--bad);
+}
+
+/* State and role colours */
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.s-idle { color: #b8b8a8; }
+.s-thinking { color: #8ec5ff; }
+.s-working { color: #ffb347; }
+.s-walking { color: var(--trim); }
+.s-reviewing { color: #c9a6ff; }
+.s-awaiting { color: var(--warn); }
+.s-failed { color: var(--bad); }
+.dot.s-idle { background: #b8b8a8; }
+.dot.s-thinking { background: #8ec5ff; }
+.dot.s-working { background: #ffb347; }
+.dot.s-walking { background: var(--trim); }
+.dot.s-reviewing { background: #c9a6ff; }
+.dot.s-awaiting { background: var(--warn); }
+.dot.s-failed { background: var(--bad); }
+.r-chieftain { color: #ff7a6e; }
+.r-coder { color: #f0a050; }
+.r-reviewer { color: #b89cf0; }
+.r-tester { color: #7fb0f0; }
+.dot.r-coder { background: #d9822b; }
+.dot.r-reviewer { background: #8e6bd6; }
+.dot.r-tester { background: #3a7bd5; }
+
+/* Medium windows: the war log would collide with the command bar. */
+@media (max-width: 1280px) {
+  .warlog {
+    display: none;
+  }
+}
+
+/* Short windows: give the map the height. */
+@media (max-height: 640px) {
+  .warlog {
+    display: none;
+  }
+  .unit {
+    bottom: 96px;
+  }
+}
+
+/* Narrow windows: top bar on the left, barracks as a button row under it,
+   unit panel as a bottom sheet above the command bar. */
+@media (max-width: 900px) {
+  .topbar {
+    left: 12px;
+    transform: none;
+    gap: 10px;
+  }
+  .topbar .badge {
+    display: none;
+  }
+  .barracks {
+    top: 58px;
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 6px;
+  }
+  .barracks h2 {
+    display: none;
+  }
+  .field {
+    flex-direction: row;
+    align-items: center;
+    margin: 0;
+  }
+  .unit {
+    top: auto;
+    bottom: 104px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 38vh;
+  }
+  /* The help text isn't worth a third of a small screen. */
+  .unit.compact {
+    display: none;
+  }
+}
