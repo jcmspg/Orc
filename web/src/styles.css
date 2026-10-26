@@ -272,6 +272,24 @@ select:focus {
   border-radius: 10px;
   padding: 1px 8px;
 }
+.badge.link-live {
+  color: #9be37a;
+  border-color: #4f8a2e;
+}
+.badge.link-offline {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.target {
+  margin-top: 8px;
+}
+.target h3 {
+  margin-top: 4px;
+}
+.target input {
+  flex: 1;
+  min-width: 0;
+}
 
 /* Barracks */
 .barracks {

@@ -1,21 +1,11 @@
-// Simulated backend. It drives the full loop (chieftain plans, peons code in
-// black boxes, reviewers approve or send work back, gold reaches the town
-// hall) with timers and canned output, so the map can be built before the real
-// Python engine exists. The real engine will implement the same `Engine`
-// interface and emit the same events.
+// Simulated engine: drives the full loop (chieftain plans, peons code,
+// reviewers approve or send work back, gold reaches the town hall) with timers
+// and canned output, entirely in the app. Used with `?sim` for demos and UI
+// work without the Python server. The real engine (`orc serve`) emits the same
+// events.
 
 import { board, dispatch } from "./store";
-import type { Backend, Edge, LogLevel, Orc, OrcState, Pending, Role } from "./types";
-
-export interface Engine {
-  spawn(role: Role, backend: Backend): void;
-  command(ids: string[], text: string): void;
-  approve(id: string): void;
-  reject(id: string): void;
-  retry(id: string): void;
-  abandon(id: string): void;
-  setAutonomy(id: string, on: boolean): void;
-}
+import type { Backend, Edge, Engine, LogLevel, Orc, OrcState, Pending, Role } from "./types";
 
 type Job = {
   kind: "plan" | "code" | "review" | "chat";
@@ -62,8 +52,10 @@ export class FakeEngine implements Engine {
   private gates = new Map<string, () => void>();
   private retries = new Map<string, () => void>();
 
-  boot(): void {
+  start(): void {
+    board.setState({ link: "sim" });
     if (this.seq > 0) return;
+    dispatch({ type: "board.repo", repo: "(simulated)" });
     this.spawn("chieftain", "claude");
     this.spawn("coder", "claude");
     this.spawn("coder", "cursor");
@@ -144,6 +136,12 @@ export class FakeEngine implements Engine {
     if (!this.retries.delete(id)) return;
     this.log(id, "Task abandoned. Black box destroyed.", "warn");
     this.next(id);
+  }
+
+  setRepo(repo: string): void {
+    dispatch({ type: "board.repo", repo });
+    const hall = this.hall();
+    if (hall) this.log(hall.id, `War target set: ${repo} (simulated, nothing is touched)`, "ok");
   }
 
   setAutonomy(id: string, on: boolean): void {
@@ -354,5 +352,3 @@ export class FakeEngine implements Engine {
     dispatch({ type: "orc.log", id, line, level });
   }
 }
-
-export const engine = new FakeEngine();

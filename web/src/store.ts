@@ -7,6 +7,8 @@ export interface FeedLine extends LogLine {
   name: string;
 }
 
+export type Link = "sim" | "connecting" | "live" | "offline";
+
 export interface BoardState {
   orcs: Record<string, Orc>;
   order: string[];
@@ -14,16 +16,13 @@ export interface BoardState {
   gold: number;
   selected: string[];
   feed: FeedLine[];
+  repo: string | null;
+  link: Link;
 }
 
-export const board = createStore<BoardState>(() => ({
-  orcs: {},
-  order: [],
-  edges: [],
-  gold: 0,
-  selected: [],
-  feed: [],
-}));
+const EMPTY = { orcs: {}, order: [], edges: [], gold: 0, selected: [], feed: [], repo: null };
+
+export const board = createStore<BoardState>(() => ({ ...EMPTY, link: "connecting" }));
 
 export const useBoard = <T>(selector: (s: BoardState) => T): T => useStore(board, selector);
 
@@ -53,6 +52,10 @@ function patchOrc(s: BoardState, id: string, patch: Partial<Orc>): BoardState {
 
 function reduce(s: BoardState, e: OrcEvent): BoardState {
   switch (e.type) {
+    case "board.reset":
+      return { ...s, ...EMPTY };
+    case "board.repo":
+      return { ...s, repo: e.repo };
     case "orc.spawned":
       return { ...s, orcs: { ...s.orcs, [e.orc.id]: e.orc }, order: [...s.order, e.orc.id] };
     case "edge.added":

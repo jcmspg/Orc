@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { engine } from "./engine";
+import { engine } from "./engines";
 import { GameView } from "./game/GameView";
-import { select, useBoard } from "./store";
+import { select, useBoard, type Link } from "./store";
 import type { Backend, Orc, OrcState, Role } from "./types";
 
 const STATE_LABEL: Record<OrcState, string> = {
@@ -20,6 +20,12 @@ const ROLE_LABEL: Record<Role, string> = {
   tester: "Tester",
 };
 const BACKENDS: Backend[] = ["claude", "cursor", "copilot", "codex"];
+const LINK_LABEL: Record<Link, string> = {
+  sim: "simulated",
+  connecting: "connecting...",
+  live: "engine live",
+  offline: "engine offline",
+};
 const TRAINABLE: Role[] = ["coder", "reviewer", "tester"];
 
 export default function App() {
@@ -38,6 +44,7 @@ export default function App() {
 function TopBar() {
   const orcs = useBoard((s) => s.orcs);
   const gold = useBoard((s) => s.gold);
+  const link = useBoard((s) => s.link);
   const list = Object.values(orcs);
   const busy = list.filter((o) => o.state !== "idle").length;
   const waiting = list.filter((o) => o.state === "awaiting").length;
@@ -50,7 +57,7 @@ function TopBar() {
       <span>{busy} busy</span>
       {waiting > 0 && <span className="warn">{waiting} awaiting orders</span>}
       {failed > 0 && <span className="bad">{failed} failed</span>}
-      <span className="badge">simulated</span>
+      <span className={`badge link-${link}`}>{LINK_LABEL[link]}</span>
     </div>
   );
 }
@@ -80,11 +87,30 @@ function Barracks() {
 function UnitPanel() {
   const selected = useBoard((s) => s.selected);
   const orcs = useBoard((s) => s.orcs);
+  const link = useBoard((s) => s.link);
+  const repo = useBoard((s) => s.repo);
   const units = selected.map((id) => orcs[id]).filter(Boolean);
+
+  if (link === "offline" || (link === "connecting" && !units.length)) {
+    return (
+      <div className="unit panel compact">
+        <h2>{link === "offline" ? "Engine offline" : "Connecting to the engine..."}</h2>
+        <p className="hint">
+          The desktop app starts <code>orc serve</code> for you. If it isn't running, start it from the repo with{" "}
+          <code>.venv/bin/orc serve</code>. To try orc without it, open the app with <code>?sim</code>.
+        </p>
+      </div>
+    );
+  }
 
   if (!units.length) {
     return (
       <div className="unit panel compact">
+        {!repo && (
+          <p className="pending">
+            No war target yet. Select <b>Ozgar</b> and set the repo the peons should work on.
+          </p>
+        )}
         <h2>No peon selected</h2>
         <p className="hint">
           Click a peon or drag a box around several. Shift-click adds to the selection. Right-drag or WASD pans,
@@ -139,6 +165,7 @@ function UnitDetail({ orc }: { orc: Orc }) {
         <span className={`pill s-${orc.state}`}>{STATE_LABEL[orc.state]}</span>
       </div>
       {orc.task && <p className="task">{orc.task}</p>}
+      {orc.role === "chieftain" && <WarTarget />}
 
       <label className="toggle">
         <input type="checkbox" checked={orc.autonomy} onChange={(e) => engine.setAutonomy(orc.id, e.target.checked)} />
@@ -187,6 +214,32 @@ function UnitDetail({ orc }: { orc: Orc }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** The repo the chieftain's peons work on (cloned into black boxes, never edited in place). */
+function WarTarget() {
+  const repo = useBoard((s) => s.repo);
+  const [draft, setDraft] = useState(repo ?? "");
+  useEffect(() => setDraft(repo ?? ""), [repo]);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (draft.trim()) engine.setRepo(draft.trim());
+  };
+  return (
+    <form className="target" onSubmit={submit}>
+      <h3>War target</h3>
+      <div className="row">
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="/path/to/repo or https://...git" />
+        <button type="submit" disabled={!draft.trim() || draft.trim() === repo}>
+          Set
+        </button>
+      </div>
+      <p className="hint">
+        Peons work on copies in black boxes. Finished work lands here as <code>orc/...</code> branches for you to
+        merge.
+      </p>
+    </form>
   );
 }
 

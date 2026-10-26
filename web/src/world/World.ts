@@ -25,6 +25,8 @@ interface Rig {
 }
 
 interface Site {
+  /** Everything placed for this orc besides the peon, removed on reset. */
+  objects: THREE.Object3D[];
   hut: THREE.Group;
   station: THREE.Vector3;
   facing: number;
@@ -53,6 +55,7 @@ export class World {
   private swaying: THREE.Object3D[] = [];
   private torches: { light: THREE.PointLight; flame: THREE.Mesh; seed: number }[] = [];
   private growing: { obj: THREE.Object3D; t: number; base: number }[] = [];
+  private lastReset = 0;
 
   private keys = new Set<string>();
   private drag: { button: number; x: number; y: number; boxing: boolean } | null = null;
@@ -176,16 +179,19 @@ export class World {
     const workHeight = { coder: 0.6, tester: 0.95, reviewer: 0.9, chieftain: 0.75 }[orc.role];
     const facing = Math.atan2(propPos.x - station.x, propPos.z - station.z);
 
+    const objects: THREE.Object3D[] = [hut, prop];
     if (orc.role === "chieftain") {
       for (const sx of [-1, 1]) {
         const torch = buildTorch();
         torch.group.position.copy(base).add(new THREE.Vector3(sx * 1.25 * s, 0, 1.05 * s));
         this.scene.add(torch.group);
         this.torches.push({ light: torch.light, flame: torch.flame, seed: Math.random() * 100 });
+        objects.push(torch.group);
       }
     }
 
     const site: Site = {
+      objects,
       hut,
       station,
       facing,
@@ -239,8 +245,13 @@ export class World {
 
   private handle(e: OrcEvent): void {
     switch (e.type) {
+      case "board.reset":
+        this.clear();
+        this.lastReset = performance.now();
+        break;
       case "orc.spawned":
-        this.addOrc(e.orc, true);
+        // Units arriving in a snapshot just appear; only newly trained ones get the build animation.
+        this.addOrc(e.orc, performance.now() - this.lastReset > 500);
         if (!this.userMoved) requestAnimationFrame(() => this.fitVillage(false));
         break;
       case "orc.state":
@@ -274,6 +285,17 @@ export class World {
       default:
         break;
     }
+  }
+
+  /** Remove every unit and building (a fresh snapshot is about to arrive). */
+  private clear(): void {
+    for (const p of this.peons.values()) this.scene.remove(p.root);
+    for (const s of this.sites.values()) for (const o of s.objects) this.scene.remove(o);
+    this.peons.clear();
+    this.sites.clear();
+    this.swaying = [];
+    this.torches = [];
+    this.growing = [];
   }
 
   /** Where a visitor stands near someone's station, spread out so they don't stack. */

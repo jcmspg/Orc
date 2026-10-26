@@ -8,16 +8,23 @@ version = "0.1.0"
 description = "Orchestrator for AI agents with different personas, driven by an AI provider API."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["anthropic>=2.3,<3"]
+dependencies = [
+  "anthropic>=2.3,<3",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
 orc = "orc.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+orc = ["docker/Dockerfile"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

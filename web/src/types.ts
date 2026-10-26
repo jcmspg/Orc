@@ -50,6 +50,8 @@ export interface Edge {
 }
 
 export type OrcEvent =
+  | { type: "board.reset" }
+  | { type: "board.repo"; repo: string | null }
   | { type: "orc.spawned"; orc: Orc }
   | { type: "edge.added"; edge: Edge }
   | { type: "orc.state"; id: string; state: OrcState; task?: string | null }
@@ -62,3 +64,16 @@ export type OrcEvent =
   | { type: "crate.sent"; from: string; to: string; label: "branch" | "findings"; durationMs: number }
   | { type: "gold.delivered"; from: string; to: string; durationMs: number }
   | { type: "gold.banked"; amount: number };
+
+/** What the HUD can ask of an engine (simulated or the real server). */
+export interface Engine {
+  start(): void;
+  spawn(role: Role, backend: Backend): void;
+  command(ids: string[], text: string): void;
+  approve(id: string): void;
+  reject(id: string): void;
+  retry(id: string): void;
+  abandon(id: string): void;
+  setAutonomy(id: string, on: boolean): void;
+  setRepo(repo: string): void;
+}
