@@ -247,4 +247,6 @@ docs/              architecture notes and images
 - [SECURITY.md](SECURITY.md): black-box threat model
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 
-No license has been chosen yet; until one is added, all rights are reserved by the author.
+## License
+
+[MIT](LICENSE)

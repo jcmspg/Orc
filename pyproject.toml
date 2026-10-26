@@ -5,8 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "orc"
 version = "0.1.0"
-description = "Orchestrator for AI agents with different personas, driven by an AI provider API."
+description = "An RTS for AI coding agents: orc peons working in Docker black boxes."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
   "anthropic>=2.3,<3",
