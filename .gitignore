@@ -17,10 +17,23 @@ dist/
 # Node / desktop app
 node_modules/
 
-# Secrets and local config (API keys live here, never commit them)
+# Secrets and local config. orc itself keeps credentials outside the repo
+# (~/.config/orc/env); these patterns are a safety net for anything else.
 .env
 .env.*
 !.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.secret
+secrets.json
+secrets.yaml
+
+# Tool caches and run artifacts
+.vite/
+*.bundle
+*.log
 
 # Editor / OS
 .idea/

@@ -144,6 +144,10 @@ export class FakeEngine implements Engine {
     if (hall) this.log(hall.id, `War target set: ${repo} (simulated, nothing is touched)`, "ok");
   }
 
+  // The simulation runs no agents, so it has no use for credentials.
+  setCredential(): void {}
+  clearCredential(): void {}
+
   setAutonomy(id: string, on: boolean): void {
     dispatch({ type: "orc.autonomy", id, autonomy: on });
     this.log(id, on ? "Autonomy on: acting without asking." : "Autonomy off: will ask before acting.");

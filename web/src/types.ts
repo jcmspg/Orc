@@ -49,7 +49,12 @@ export interface Edge {
   kind: "command" | "review";
 }
 
+/** Agent credentials the engine can save for black boxes. Values never reach the app. */
+export type CredentialName = "CLAUDE_CODE_OAUTH_TOKEN" | "ANTHROPIC_API_KEY" | "CURSOR_API_KEY";
+export type CredentialStatus = "env" | "saved" | "missing";
+
 export type OrcEvent =
+  | { type: "app.credentials"; status: Record<CredentialName, CredentialStatus>; error?: string }
   | { type: "board.reset" }
   | { type: "board.repo"; repo: string | null }
   | { type: "orc.spawned"; orc: Orc }
@@ -76,4 +81,6 @@ export interface Engine {
   abandon(id: string): void;
   setAutonomy(id: string, on: boolean): void;
   setRepo(repo: string): void;
+  setCredential(name: CredentialName, value: string): void;
+  clearCredential(name: CredentialName): void;
 }

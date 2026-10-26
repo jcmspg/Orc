@@ -377,8 +377,11 @@ class Engine:
         summary = await self.runtime_for(orc.backend).run(
             work.box, prompt, self._logger(oid), kind="code", hints={"task": job.task}
         )
-        if summary.strip():
-            self._log(oid, summary.strip().splitlines()[-1][:200])
+        # Runtimes stream the agent's messages already; only add the summary if it wasn't shown.
+        last = summary.strip().splitlines()[-1][:200] if summary.strip() else ""
+        recent = [line["text"].rstrip("…")[:60] for line in orc.log[-5:]]
+        if last and last[:60] not in recent and not any(last.startswith(r) for r in recent if r):
+            self._log(oid, last)
 
         commits = await self._commit_all(work.box, work, title)
         if commits == 0:

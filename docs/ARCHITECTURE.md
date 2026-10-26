@@ -37,6 +37,7 @@ state-bearing ones; the World (`web/src/world/World.ts`) animates the visual one
 | `crate.sent` | `from, to, label: branch\|findings, durationMs` | A peon walks a branch (or findings) over. |
 | `gold.delivered` | `from, to, durationMs` | A peon carries gold to the town hall. |
 | `gold.banked` | `amount` | Gold counter increments. |
+| `app.credentials` | `status {NAME: env\|saved\|missing}, error?` | Which agent credentials exist. Never values. |
 
 On connect, the server sends a snapshot (`board.reset`, `board.repo`, every `orc.spawned` with current
 state, log and pending, every `edge.added`, accumulated gold) and then live events. Snapshot and
@@ -54,8 +55,22 @@ App → server, `{ "op": ..., ... }`:
 | `retry` / `abandon` | `id` (resolves a failed job) |
 | `setAutonomy` | `id`, `on` |
 | `setRepo` | `repo` |
+| `setCredential` | `name`, `value` (handled by the server, saved via `credentials.py`) |
+| `clearCredential` | `name` |
 
 Unknown or invalid ops are ignored. The app does not queue ops while offline.
+
+## Connection security and lifecycle
+
+- The desktop shell generates a random `ORC_SESSION_TOKEN` per launch, passes it to the engine in its
+  environment and to the page as `?token=` in the WebSocket URL. The server rejects a missing or wrong
+  token (when one is configured) and any browser Origin that isn't local (`origin_allowed`).
+- The page talks to the shell only through `web/electron/preload.cjs`: `quit()`, `openExternal(url)`
+  (https, allow-listed hosts), `onQuitRequest(cb)`.
+- Quit: closing the window or `Ctrl+Q` asks the page, which shows a confirmation; confirming calls
+  `quit()`. The shell then sends the engine SIGTERM and waits (up to 10 s) for it to exit; the engine's
+  lifespan shutdown cancels workers and destroys boxes. SIGTERM/SIGINT to the shell take the same path.
+  The engine also polls `ORC_PARENT_PID` and stops itself if the shell vanished without stopping it.
 
 ## Jobs and flows
 

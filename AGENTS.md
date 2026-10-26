@@ -51,7 +51,12 @@ A bare `npx <tool>` from the wrong directory silently downloads an unrelated ver
    it, which keeps snapshots and live clients consistent.
 5. **Visuals never lie.** Animations must be driven by real events. Don't add decorative state the
    engine doesn't know about.
-6. **Agents in boxes may run with full permissions** (`--dangerously-skip-permissions`, `--force`)
+6. **Secrets never reach the page.** Credential values flow app → server → `credentials.py` → env file
+   and process environment, and nowhere else. Events carry only `env` / `saved` / `missing`.
+   Don't add an op or event that returns a value, and keep the name allow-list in `credentials.KNOWN`.
+7. **The page only gets the preload bridge.** Keep `contextIsolation`, `sandbox` and
+   `nodeIntegration: false`; add capabilities to `preload.cjs` deliberately, never Node access.
+8. **Agents in boxes may run with full permissions** (`--dangerously-skip-permissions`, `--force`)
    precisely because of 1 and 2. Don't add those flags anywhere outside a box.
 
 ## Code map
@@ -109,3 +114,7 @@ A bare `npx <tool>` from the wrong directory silently downloads an unrelated ver
 - `.game` uses `isolation: isolate` so label z-indexes can't rise above HUD panels.
 - `claude -p` waits for stdin if it is open; box execs use `stdin=DEVNULL`.
 - Port 8787 is commonly taken by other local tools; orc uses 47820.
+- Scripted tests over CDP: pick a `--remote-debugging-port` that's free (a browser may already own
+  9222/9333) and only attach to targets whose URL is the orc app, never to other pages.
+- Tests must never touch the real `~/.config/orc/env`; `tests/conftest.py` isolates it. When running the
+  app for tests, point `XDG_CONFIG_HOME` at a scratch directory.

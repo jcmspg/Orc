@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
-import type { Edge, LogLine, Orc, OrcEvent } from "./types";
+import type { CredentialName, CredentialStatus, Edge, LogLine, Orc, OrcEvent } from "./types";
 
 export interface FeedLine extends LogLine {
   orcId: string;
@@ -8,6 +8,7 @@ export interface FeedLine extends LogLine {
 }
 
 export type Link = "sim" | "connecting" | "live" | "offline";
+export type MenuView = "main" | "settings" | "controls" | "quit";
 
 export interface BoardState {
   orcs: Record<string, Orc>;
@@ -18,11 +19,25 @@ export interface BoardState {
   feed: FeedLine[];
   repo: string | null;
   link: Link;
+  /** Which credentials the engine has (never their values); null until it reports. */
+  credentials: Record<CredentialName, CredentialStatus> | null;
+  credentialError: string | null;
+  menu: MenuView | null;
 }
 
 const EMPTY = { orcs: {}, order: [], edges: [], gold: 0, selected: [], feed: [], repo: null };
 
-export const board = createStore<BoardState>(() => ({ ...EMPTY, link: "connecting" }));
+export const board = createStore<BoardState>(() => ({
+  ...EMPTY,
+  link: "connecting",
+  credentials: null,
+  credentialError: null,
+  menu: null,
+}));
+
+export function openMenu(view: MenuView | null): void {
+  board.setState({ menu: view });
+}
 
 export const useBoard = <T>(selector: (s: BoardState) => T): T => useStore(board, selector);
 
@@ -52,6 +67,8 @@ function patchOrc(s: BoardState, id: string, patch: Partial<Orc>): BoardState {
 
 function reduce(s: BoardState, e: OrcEvent): BoardState {
   switch (e.type) {
+    case "app.credentials":
+      return { ...s, credentials: e.status, credentialError: e.error ?? null };
     case "board.reset":
       return { ...s, ...EMPTY };
     case "board.repo":

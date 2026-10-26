@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { engine } from "./engines";
 import { GameView } from "./game/GameView";
-import { select, useBoard, type Link } from "./store";
+import { Menu, hasAnyCredential } from "./Menu";
+import { openMenu, select, useBoard, type Link } from "./store";
 import type { Backend, Orc, OrcState, Role } from "./types";
 
 const STATE_LABEL: Record<OrcState, string> = {
@@ -37,6 +38,7 @@ export default function App() {
       <UnitPanel />
       <WarLog />
       <CommandBar />
+      <Menu />
     </div>
   );
 }
@@ -51,6 +53,9 @@ function TopBar() {
   const failed = list.filter((o) => o.state === "failed").length;
   return (
     <div className="topbar panel">
+      <button className="menu-button" onClick={() => openMenu("main")} title="Menu (Esc)">
+        Menu
+      </button>
       <span className="brand">ORC</span>
       <span className="gold">{gold} gold</span>
       <span>{list.length} peons</span>
@@ -95,6 +100,7 @@ function UnitPanel() {
   const orcs = useBoard((s) => s.orcs);
   const link = useBoard((s) => s.link);
   const repo = useBoard((s) => s.repo);
+  const credentials = useBoard((s) => s.credentials);
   const units = selected.map((id) => orcs[id]).filter(Boolean);
 
   if (link === "offline" || (link === "connecting" && !units.length)) {
@@ -112,6 +118,14 @@ function UnitPanel() {
   if (!units.length) {
     return (
       <div className="unit panel compact">
+        {link === "live" && credentials && !hasAnyCredential(credentials) && (
+          <div className="pending">
+            Peons need a Claude token or Cursor key to work.{" "}
+            <button className="ok" onClick={() => openMenu("settings")}>
+              Add one
+            </button>
+          </div>
+        )}
         {!repo && (
           <p className="pending">
             No war target yet. Select <b>Ozgar</b> and set the repo the peons should work on.
@@ -120,7 +134,8 @@ function UnitPanel() {
         <h2>No peon selected</h2>
         <p className="hint">
           Click a peon or drag a box around several. Shift-click adds to the selection. Right-drag or WASD pans,
-          scroll zooms, middle-drag or Q/E rotates, H recentres, Enter gives orders, Esc deselects. F11 fullscreen.
+          scroll zooms, middle-drag or Q/E rotates, H recentres, Enter gives orders, Esc deselects (or opens the
+          menu). F11 fullscreen.
         </p>
         <p className="hint">
           Order <b>Ozgar</b> (the chieftain) to split a job across the peons. His autonomy is off, so he will ask

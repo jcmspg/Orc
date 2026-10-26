@@ -29,8 +29,20 @@ are, so you can decide what to point it at.
 - **Docker itself.** Containers are not a hard security boundary against kernel or Docker escapes. If
   your Docker daemon is rootful (the default), a container escape would be root on the host. Rootless
   Docker or Podman reduces that risk.
-- **The engine port.** `orc serve` listens on `127.0.0.1` only, without authentication. Any local
-  process can send it orders. Don't bind it to other interfaces.
+- **Other local programs.** `orc serve` listens on `127.0.0.1` only. When the desktop app starts it,
+  the app generates a random secret per launch and the engine accepts only connections that present
+  it, and it rejects WebSocket connections from web pages (browsers allow any site to open a socket to
+  localhost; the Origin check stops that). A program running as your user could still read the secret
+  from the process environment; that user already has access to everything orc does. If you run
+  `orc serve` by hand, it has no secret, so only the Origin check applies. Don't bind it to other
+  interfaces.
+
+## Saved credentials
+
+Tokens pasted into **Settings** are written to `~/.config/orc/env`, created with mode 600 and replaced
+atomically. Only known names can be written (Claude token, Anthropic key, Cursor key). Values are
+never sent back to the app, logged, or included in events. To remove one, use **Remove** in Settings or
+delete its line from the file, and revoke it at the provider if it may have leaked.
 
 ## Reporting a problem
 

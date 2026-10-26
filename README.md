@@ -119,15 +119,21 @@ Every peon has its own runtime, chosen in the Barracks when you train it. The de
 Why tokens and not your normal login: the boxes can't see your home directory (that's the point), so
 they can't use `~/.claude` or `~/.cursor`. A token made for headless use is the clean way in.
 
-Keep them out of the repo, in a private file sourced by your shell:
+**Easiest: paste it in the app.** On first launch with no credentials, **Menu → Settings** opens by
+itself. Paste the token and press Save. orc writes it to `~/.config/orc/env` (created with mode 600,
+readable only by you), uses it immediately, and loads it on every start. Saved values are never shown
+again; the app only shows *Saved*, *From environment* or *Not set*.
+
+Or manage the file yourself. It holds plain `export NAME=value` lines, so your shell can source it too:
 
 ```bash
 mkdir -p ~/.config/orc && install -m 600 /dev/null ~/.config/orc/env
 ${EDITOR:-nano} ~/.config/orc/env
 #   export CLAUDE_CODE_OAUTH_TOKEN=...
 #   export CURSOR_API_KEY=...
-echo '[ -f ~/.config/orc/env ] && . ~/.config/orc/env' >> ~/.bashrc
 ```
+
+A variable already set in your environment takes priority over the file.
 
 orc forwards credentials into a box by variable *name* (`docker exec -e NAME`), so their values never
 appear on a command line. Each order uses real model time on your plan: one planning run, plus one run
@@ -160,7 +166,12 @@ are safe from the agents, but the boxes have network access and can see the cred
 | Rotate | middle-drag, or `Q` / `E` |
 | Recentre on the village | `H` |
 | Deselect | `Esc` |
+| Menu (settings, controls, quit) | `Esc` with nothing selected, or the **Menu** button |
+| Quit | `Ctrl+Q` or close the window (asks first if peons are working) |
 | Fullscreen / devtools | `F11` / `F12` |
+
+Quitting shuts the engine down cleanly: running jobs stop and their black boxes are destroyed. If the
+app is killed instead, the engine notices within a couple of seconds and shuts itself down the same way.
 
 ## Configuration
 

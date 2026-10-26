@@ -2,7 +2,7 @@
 // Server events are applied to the board as-is; HUD actions become ops.
 
 import { board, dispatch } from "./store";
-import type { Backend, Engine, OrcEvent, Role } from "./types";
+import type { Backend, CredentialName, Engine, OrcEvent, Role } from "./types";
 
 export class RemoteEngine implements Engine {
   private ws: WebSocket | null = null;
@@ -52,6 +52,12 @@ export class RemoteEngine implements Engine {
   }
   setRepo(repo: string): void {
     this.send({ op: "setRepo", repo });
+  }
+  setCredential(name: CredentialName, value: string): void {
+    this.send({ op: "setCredential", name, value });
+  }
+  clearCredential(name: CredentialName): void {
+    this.send({ op: "clearCredential", name });
   }
 
   private send(op: Record<string, unknown>): void {

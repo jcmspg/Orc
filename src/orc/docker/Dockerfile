@@ -2,7 +2,9 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl python3 python3-venv ripgrep procps \
+    && apt-get install -y --no-install-recommends \
+        git ca-certificates curl ripgrep procps \
+        python3 python3-venv python3-pip python3-pytest python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
@@ -19,3 +21,10 @@ RUN git config --global user.name "orc peon" \
     && git config --global user.email "peon@orc.local" \
     && git config --global init.defaultBranch main \
     && git config --global advice.detachedHead false
+
+# Build and test leftovers never belong in a peon's branch, even when the
+# target repo has no .gitignore (orc commits whatever is left in the tree).
+RUN mkdir -p /home/node/.config/git && printf '%s\n' \
+    '__pycache__/' '*.py[cod]' '.pytest_cache/' '.mypy_cache/' '.ruff_cache/' '.venv/' \
+    'node_modules/' '.npm/' '.cache/' '*.log' '.DS_Store' \
+    > /home/node/.config/git/ignore
