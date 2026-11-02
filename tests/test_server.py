@@ -57,3 +57,37 @@ def test_unknown_ops_are_ignored():
         ws.send_json({"op": "spawn", "role": "dragon", "backend": "claude"})
         ws.send_json({"op": "nonsense"})
         assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_diff_and_merge_ops_reach_the_engine(monkeypatch):
+    calls = []
+
+    async def fake_diff(self, did):
+        calls.append(("diff", did))
+
+    async def fake_merge(self, did):
+        calls.append(("merge", did))
+
+    monkeypatch.setattr(Engine, "show_diff", fake_diff)
+    monkeypatch.setattr(Engine, "merge", fake_merge)
+    delivery = {
+        "id": "abc123", "branch": "orc/durg/x-abc123", "task": "x", "owner": "orc-2", "repo": "/r",
+        "base": "b" * 40, "baseBranch": "main", "head": "c" * 40, "stat": "1 file changed",
+    }
+
+    def engine_with_gold(emit):
+        engine = fake_engine(emit)
+        engine.board.apply({"type": "branch.delivered", "delivery": delivery})
+        return engine
+
+    with TestClient(create_app(engine_with_gold)) as client, client.websocket_connect("/ws") as ws:
+        events = [ws.receive_json() for _ in range(1 + 1 + 4 + 5 + 1)]  # reset, repo, orcs, edges, delivery
+        snap = next(e for e in events if e["type"] == "branch.delivered")["delivery"]
+        assert snap["baseBranch"] == "main" and snap["status"] == "delivered"
+        assert ws.receive_json()["type"] == "app.credentials"
+        ws.send_json({"op": "diff", "id": "abc123"})
+        ws.send_json({"op": "merge", "id": "abc123"})
+        ws.send_json({"op": "merge", "id": "unknown"})
+        ws.send_json({"op": "spawn", "role": "tester", "backend": "claude"})
+        assert ws.receive_json()["type"] == "orc.spawned"  # ops are handled in order
+    assert calls == [("diff", "abc123"), ("merge", "abc123")]

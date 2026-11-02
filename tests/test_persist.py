@@ -1,6 +1,9 @@
 import asyncio
 import json
 import stat
+import subprocess
+
+import pytest
 
 from orc.board import Board
 from orc.engine import Engine
@@ -8,6 +11,7 @@ from orc.persist import BoardStore, state_path
 from orc.runtimes import DummyRuntime
 from tests.fakes import LocalSandbox
 from tests.test_engine import all_idle, isolated_git, repo, until  # noqa: F401  (fixtures)
+from tests.test_spoils import deliver_two
 
 
 def make_engine(events: list, store: BoardStore, runtime=None) -> Engine:
@@ -126,3 +130,51 @@ def test_save_file_is_private_and_lives_in_xdg_state(tmp_path):
     store = BoardStore()
     store.save(Board())
     assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+
+
+def test_deliveries_survive_a_restart_and_are_rechecked(repo, tmp_path):
+    store = BoardStore(tmp_path / "board.json")
+
+    async def first_launch():
+        engine = await deliver_two(repo, [])
+        engine.store = store
+        await engine.shutdown()
+        return engine.board
+
+    async def second_launch():
+        events: list = []
+        engine = make_engine(events, store)
+        engine.boot()
+        await engine.shutdown()
+        return engine.board, events
+
+    before = asyncio.run(first_launch())
+    kept, deleted = list(before.deliveries.values())
+    saved = json.loads(store.path.read_text())["deliveries"]
+    assert [d["id"] for d in saved] == [kept.id, deleted.id] and saved[0]["baseBranch"] == "main"
+    subprocess.run(["git", "-C", str(repo), "branch", "-D", deleted.branch], check=True)  # while orc was closed
+
+    after, events = asyncio.run(second_launch())
+    assert after.deliveries[kept.id] == kept
+    assert after.deliveries[deleted.id].status == "missing"
+    assert [e["type"] for e in events].count("branch.delivered") == 2
+    assert any("was deleted outside orc" in line["text"] for line in after.orcs["orc-1"].log)
+
+
+def test_a_bad_delivery_entry_is_a_bad_save(tmp_path):
+    store = BoardStore(tmp_path / "board.json")
+    store.save(Board())
+    data = json.loads(store.path.read_text())
+    data["deliveries"] = [{"id": "x", "status": "delivered"}]
+    store.path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="bad delivery"):
+        store.load()
+
+
+def test_saves_from_before_deliveries_still_load(tmp_path):
+    store = BoardStore(tmp_path / "board.json")
+    store.save(Board())
+    data = json.loads(store.path.read_text())
+    del data["deliveries"]
+    store.path.write_text(json.dumps(data))
+    assert store.load().deliveries == []

@@ -7,7 +7,7 @@ Events are plain dicts shaped exactly like the `OrcEvent` union in
 from __future__ import annotations
 
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 LOG_LIMIT = 200
@@ -40,12 +40,55 @@ class Edge:
         return {"from": self.source, "to": self.target, "kind": self.kind}
 
 
+DELIVERY_STATUSES = ("delivered", "bundled", "merged", "conflict", "missing", "moved")
+_WIRE = {"base_branch": "baseBranch", "merge_commit": "mergeCommit"}
+
+
+@dataclass
+class Delivery:
+    """A finished branch: the gold. Lives in the user's repo (or a bundle, for URL targets).
+
+    status: `delivered` (in the repo, unmerged), `bundled` (URL target: only a
+    bundle exists), `merged`, `conflict` (an in-app merge found conflicts),
+    `missing` (deleted outside orc), `moved` (its tip changed outside orc).
+    `command` is a git command for the player to run themselves, when orc won't.
+    """
+
+    id: str
+    branch: str
+    task: str
+    owner: str
+    repo: str
+    base: str  # commit the work started from
+    base_branch: str | None  # branch HEAD was on then: the merge target (None: detached)
+    head: str  # commit delivered
+    stat: str
+    status: str = "delivered"
+    note: str | None = None
+    command: str | None = None
+    conflicts: list[str] = field(default_factory=list)
+    merge_commit: str | None = None
+    bundle: str | None = None
+    at: int = 0  # ms since epoch
+
+    def to_dict(self) -> dict[str, Any]:
+        return {_WIRE.get(k, k): v for k, v in asdict(self).items()}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Delivery":
+        back = {v: k for k, v in _WIRE.items()}
+        known = {f.name for f in fields(cls)}
+        values = {back.get(k, k): v for k, v in data.items()}
+        return cls(**{k: v for k, v in values.items() if k in known})
+
+
 class Board:
     def __init__(self) -> None:
         self.orcs: dict[str, Orc] = {}
         self.edges: list[Edge] = []
         self.gold = 0
         self.repo: str | None = None
+        self.deliveries: dict[str, Delivery] = {}
 
     def apply(self, e: dict[str, Any]) -> None:
         kind = e["type"]
@@ -74,6 +117,17 @@ class Board:
             self.gold += e["amount"]
         elif kind == "board.repo":
             self.repo = e["repo"]
+        elif kind == "branch.delivered":
+            d = Delivery.from_dict(e["delivery"])
+            self.deliveries[d.id] = d
+        elif kind == "branch.status" and (d := self.deliveries.get(e["id"])):
+            d.status = e["status"]
+            d.note = e.get("note")
+            d.command = e.get("command")
+            d.conflicts = list(e.get("conflicts", []))
+        elif kind == "branch.merged" and (d := self.deliveries.get(e["id"])):
+            d.status, d.merge_commit = "merged", e["commit"]
+            d.note, d.command, d.conflicts = None, None, []
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Events that rebuild this board from scratch on a fresh client."""
@@ -82,4 +136,5 @@ class Board:
         events += [{"type": "edge.added", "edge": e.to_dict()} for e in self.edges]
         if self.gold:
             events.append({"type": "gold.banked", "amount": self.gold})
+        events += [{"type": "branch.delivered", "delivery": d.to_dict()} for d in self.deliveries.values()]
         return events

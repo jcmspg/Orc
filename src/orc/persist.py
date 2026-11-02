@@ -1,4 +1,5 @@
-"""Keeps the village between launches: units, links, logs, gold and the war target.
+"""Keeps the village between launches: units, links, logs, gold, delivered branches
+and the war target.
 
 Only what the board knows is saved. Jobs, gates and black boxes end with the
 engine (boxes are destroyed on shutdown), so a restored orc always wakes up idle.
@@ -9,11 +10,11 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from orc.board import Board, Edge, Orc
+from orc.board import DELIVERY_STATUSES, Board, Delivery, Edge, Orc
 
 VERSION = 1
 
@@ -29,6 +30,7 @@ class Saved:
     edges: list[Edge]
     gold: int
     repo: str | None
+    deliveries: list[Delivery] = field(default_factory=list)
 
 
 class BoardStore:
@@ -57,6 +59,7 @@ class BoardStore:
             "gold": board.gold,
             "orcs": [o.to_dict() for o in board.orcs.values()],
             "edges": [e.to_dict() for e in board.edges],
+            "deliveries": [d.to_dict() for d in board.deliveries.values()],
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
@@ -79,5 +82,17 @@ def _parse(data: dict[str, Any]) -> Saved:
     edges = [Edge(e["from"], e["to"], e["kind"]) for e in data["edges"]]
     if any(e.source not in ids or e.target not in ids for e in edges):
         raise ValueError("edge to an unknown orc")
+    deliveries = []
+    for raw in data.get("deliveries", []):  # absent in saves from before in-app merging
+        required = {"id", "branch", "task", "owner", "repo", "base", "baseBranch", "head", "stat"}
+        if not isinstance(raw, dict) or not required <= raw.keys() or raw.get("status", "delivered") not in DELIVERY_STATUSES:
+            raise ValueError("bad delivery entry")
+        deliveries.append(Delivery.from_dict(raw))
     repo = data.get("repo")
-    return Saved(orcs=orcs, edges=edges, gold=int(data.get("gold", 0)), repo=repo if isinstance(repo, str) else None)
+    return Saved(
+        orcs=orcs,
+        edges=edges,
+        gold=int(data.get("gold", 0)),
+        repo=repo if isinstance(repo, str) else None,
+        deliveries=deliveries,
+    )

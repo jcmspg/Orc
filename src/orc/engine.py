@@ -5,7 +5,8 @@ Each orc has its own job queue and worker coroutine. Jobs:
 - plan   (chieftain): read the repo, split the job across connected workers
 - code   (coder/tester): work in a box on a fresh branch, export it
 - review (reviewer): read the branch, approve or send findings back
-Approved branches are fetched into the user's repo as `orc/...` branches.
+Approved branches are fetched into the user's repo as `orc/...` branches
+(deliveries: the gold), which the player can diff and merge from the app.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import math
 import random
 import re
 import secrets
+import shlex
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -22,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from orc import gitops, prompts
-from orc.board import Board, Orc
+from orc.board import Board, Delivery, Orc
 from orc.persist import BoardStore, Saved
 from orc.runtimes import Runtime
 from orc.sandbox import WORKDIR, Sandbox
@@ -43,9 +46,31 @@ BACKENDS = ("claude", "cursor", "copilot", "codex")
 _KEEP = object()  # "leave the orc's task unchanged"
 # Events that only animate; they don't change the board, so they don't need saving.
 VISUAL_EVENTS = {"orc.say", "orders.sent", "crate.sent", "gold.delivered"}
+# Replies to a single request; not board state either.
+UNSAVED_EVENTS = VISUAL_EVENTS | {"branch.diff"}
+# Delivery statuses worth re-checking against the repo (the others are settled or have no repo).
+OPEN_STATUSES = ("delivered", "conflict", "missing", "moved")
 
 Emit = Callable[[dict[str, Any]], None]
 SandboxFactory = Callable[[str], Awaitable[Sandbox]]
+
+
+@dataclass
+class Change:
+    """A delivery status the repo implies: the note for the app, the line for the log."""
+
+    status: str
+    note: str
+    log: str
+    command: str | None = None
+
+
+@dataclass
+class Look:
+    """What the user's repo says about a delivery: its branch tip, and a status change if any."""
+
+    tip: str | None
+    change: Change | None = None
 
 
 class Abort(Exception):
@@ -71,6 +96,9 @@ class Work:
     task: str
     branch: str
     base: str = ""
+    base_branch: str | None = None  # the branch HEAD was on at clone time: where this merges back
+    head: str = ""
+    stat: str = ""
     box: Sandbox | None = None
     ready: bool = False
     bundle: Path | None = None
@@ -117,6 +145,7 @@ class Engine:
         self._slots = 0
         self.store = store
         self._save_pending: asyncio.TimerHandle | None = None
+        self._merging: set[str] = set()
 
     # --- lifecycle ---
 
@@ -169,6 +198,11 @@ class Engine:
             self._link(edge.source, edge.target, edge.kind)
         if saved.gold:
             self._emit("gold.banked", amount=saved.gold)
+        for d in saved.deliveries:
+            self._emit("branch.delivered", delivery=d.to_dict())
+        for d in saved.deliveries:
+            if d.status in OPEN_STATUSES:  # the player may have merged or deleted branches while orc slept
+                self._report(d, self._look(d))
         hall = self._hall()
         if hall:
             self._log(hall.id, "The village is back from its rest.", "ok")
@@ -197,6 +231,10 @@ class Engine:
             self.set_autonomy(oid, bool(op.get("on")))
         elif kind == "setRepo":
             self.set_repo(str(op.get("repo", "")))
+        elif kind == "diff" and oid in self.board.deliveries:
+            await self.show_diff(oid)
+        elif kind == "merge" and oid in self.board.deliveries:
+            await self.merge(oid)
 
     # --- player actions ---
 
@@ -420,9 +458,10 @@ class Engine:
         if work.box is None:
             self._log(oid, "Raising a black box...")
             work.box = await self.sandbox_factory(f"{orc.name}-{work.id}")
-            work.base = await self._clone_repo(work.box, repo, branch=work.branch)
+            work.base, work.base_branch = await self._clone_repo(work.box, repo, branch=work.branch)
             work.ready = True
-            self._log(oid, f"Cloned the repo at {work.base[:8]} onto {work.branch}.")
+            on = f" ({work.base_branch})" if work.base_branch else " (detached HEAD)"
+            self._log(oid, f"Cloned the repo at {work.base[:8]}{on} onto {work.branch}.")
 
         prompt = prompts.fix(orc.name, job.task, job.findings) if fixing else prompts.code(orc.name, orc.role, job.task)
         summary = await self.runtime_for(orc.backend).run(
@@ -438,6 +477,8 @@ class Engine:
         if commits == 0:
             raise RuntimeError("No changes were made, so there is nothing to hand over.")
         _, stat = await work.box.exec(["git", "diff", "--shortstat", f"{work.base}..HEAD"])
+        _, head = await work.box.exec(["git", "rev-parse", "HEAD"])
+        work.stat, work.head = stat.strip(), head.strip()
         work.bundle = gitops.cache_dir() / "bundles" / f"{work.id}.bundle"
         await work.box.exec(["git", "bundle", "create", "/tmp/out.bundle", work.branch])
         await work.box.copy_out("/tmp/out.bundle", work.bundle)
@@ -492,11 +533,28 @@ class Engine:
         """Fetch the finished branch into the user's repo: the gold."""
         repo = self.board.repo or ""
         hall = self._hall()
+        delivery = Delivery(
+            id=work.id,
+            branch=work.branch,
+            task=work.task,
+            owner=work.owner,
+            repo=repo,
+            base=work.base,
+            base_branch=work.base_branch,
+            head=work.head,
+            stat=work.stat,
+            bundle=str(work.bundle) if work.bundle else None,
+            at=int(time.time() * 1000),
+        )
         if work.bundle and not gitops.is_url(repo):
             await asyncio.to_thread(gitops.fetch_branch, repo, work.bundle, work.branch)
-            where = f"Branch {work.branch} is in your repo. Merge when ready."
+            where = f"Branch {work.branch} is in your repo. Look it over and merge it from the spoils."
         else:
             where = f"Branch {work.branch} is bundled at {work.bundle} (remote repos can't be fetched into)."
+            delivery.status = "bundled"
+            delivery.note = "The war target is a remote repo, so the branch stays in a bundle. Fetch it into a clone:"
+            delivery.command = f"git fetch {shlex.quote(str(work.bundle))} {work.branch}:{work.branch}"
+        self._emit("branch.delivered", delivery=delivery.to_dict())
         self._log(work.owner, where, "ok")
         if hall:
             self._log(hall.id, f"Gold! {where}", "ok")
@@ -509,6 +567,146 @@ class Engine:
             await work.box.destroy()
         self.works.pop(work.id, None)
         await asyncio.sleep(self.walk_s)
+
+    # --- spoils: delivered branches ---
+
+    async def show_diff(self, did: str) -> None:
+        """Send the delivery's diff (base...branch, from the repo's objects) to the app."""
+        d = self.board.deliveries[did]
+        try:
+            if d.status == "bundled":
+                if not d.bundle or not Path(d.bundle).exists():
+                    raise RuntimeError(f"The bundle {d.bundle} is gone.")
+                text, truncated = await asyncio.to_thread(gitops.diff_bundle, Path(d.bundle), d.base, d.head)
+            else:
+                look = await asyncio.to_thread(self._look, d)
+                self._report(d, look)
+                if not Path(d.repo).is_dir():
+                    raise RuntimeError(f"The repo {d.repo} is gone.")
+                head = look.tip or d.head
+                if not await asyncio.to_thread(gitops.has_commit, d.repo, head):
+                    raise RuntimeError(f"{d.branch} and its commits are gone from {d.repo}.")
+                text, truncated = await asyncio.to_thread(gitops.diff, d.repo, d.base, head)
+        except (RuntimeError, OSError) as exc:
+            self._emit("branch.diff", id=did, text="", truncated=False, error=str(exc))
+            return
+        self._emit("branch.diff", id=did, text=text, truncated=truncated, error=None)
+
+    async def merge(self, did: str) -> None:
+        """Merge a delivery into the branch its work started from, if orc can do it safely.
+
+        orc only moves a branch ref nobody has checked out (see gitops.merge).
+        Otherwise it leaves everything alone and hands the player the command.
+        """
+        d = self.board.deliveries[did]
+        if did in self._merging:
+            return
+        self._merging.add(did)
+        try:
+            changed = self._report(d, await asyncio.to_thread(self._look, d))
+            if d.status not in ("delivered", "conflict"):
+                # Nothing orc may merge (merged, bundled, missing, moved); the note says why.
+                # Answer anyway, so the app isn't left waiting.
+                if not changed:
+                    self._branch_status(d, d.status, d.note, d.command, d.conflicts)
+                return
+            manual = f"git merge --no-ff {d.branch}"
+            if not d.base_branch:
+                self._branch_status(
+                    d, "delivered",
+                    "The work started on a detached HEAD, so orc doesn't know which branch to merge into. "
+                    "Check out the branch you want and run:",
+                    manual,
+                )
+                return
+            into = d.base_branch
+            try:
+                result = await asyncio.to_thread(gitops.merge, d.repo, d.branch, into, expect=d.head)
+            except RuntimeError as exc:
+                self._branch_status(d, d.status, f"Merge failed: {exc}", None, d.conflicts)
+                self._hall_log(f"Couldn't merge {d.branch}: {exc}", "error")
+                return
+        finally:
+            self._merging.discard(did)
+
+        conflicts = result.conflicts
+        clash = f" It will conflict in {', '.join(conflicts)}." if conflicts else ""
+        if result.status == "merged" and result.commit:
+            self._emit("branch.merged", id=did, into=into, commit=result.commit)
+            self._hall_log(f"Merged {d.branch} into {into} ({result.commit[:8]}).", "ok")
+            self._say_hall("More gold for the horde!")
+        elif result.status == "upToDate":
+            self._branch_status(d, "merged", f"{into} already has everything from this branch.")
+        elif result.status == "checkedOut":
+            where = result.worktrees[0]
+            self._branch_status(
+                d, "conflict" if conflicts else "delivered",
+                f"{into} is checked out in {where}, and orc never touches a working tree.{clash} "
+                "Merge it there yourself:",
+                manual, conflicts,
+            )
+            self._hall_log(f"Left {d.branch} for you: {into} is checked out in {where}. Run: {manual}", "warn")
+        else:
+            self._branch_status(
+                d, "conflict",
+                f"Merging into {into} would conflict in {len(conflicts)} file(s). Nothing was changed. "
+                "Resolve it yourself:",
+                f"git switch {into} && {manual}", conflicts,
+            )
+            self._hall_log(f"{d.branch} conflicts with {into} in {', '.join(conflicts)}. Nothing was merged.", "warn")
+
+    @staticmethod
+    def _look(d: Delivery) -> Look:
+        """Compare a delivery with the user's repo. Read-only, and runs in a thread, so it must not emit."""
+        if d.status == "bundled":
+            return Look(None)
+        if not Path(d.repo).is_dir():
+            return Look(None, Change("missing", f"The repo {d.repo} is gone.", f"The repo {d.repo} is gone."))
+        tip = gitops.branch_tip(d.repo, d.branch)
+        if d.status == "merged":
+            return Look(tip)
+        target = gitops.branch_tip(d.repo, d.base_branch) if d.base_branch else None
+        # Merged means the delivered commit reached the target; a tip reset onto it doesn't count.
+        if target and gitops.is_ancestor(d.repo, d.head, target):
+            note = f"Merged into {d.base_branch} outside orc."
+            return Look(tip, Change("merged", note, f"{d.branch} was {note[0].lower()}{note[1:]}"))
+        if tip is None:
+            note = "Deleted outside orc. There is nothing left to merge."
+            return Look(None, Change("missing", note, f"{d.branch} was deleted outside orc; marked it missing."))
+        if tip != d.head:
+            note = (
+                f"Moved outside orc: now at {tip[:8]}, delivered as {d.head[:8]}. "
+                "orc only merges what it delivered. If you want this, merge it yourself:"
+            )
+            log = f"{d.branch} was moved outside orc ({d.head[:8]} -> {tip[:8]}); orc won't merge it."
+            return Look(tip, Change("moved", note, log, f"git merge --no-ff {d.branch}"))
+        if d.status in ("missing", "moved"):
+            return Look(tip, Change("delivered", "Back where orc left it.", f"{d.branch} is back where orc left it."))
+        return Look(tip)
+
+    def _report(self, d: Delivery, look: Look) -> bool:
+        """Apply what `_look` found. Returns whether anything changed."""
+        c = look.change
+        if not c or (c.status, c.note) == (d.status, d.note):
+            return False
+        self._branch_status(d, c.status, c.note, c.command)
+        self._hall_log(c.log, "ok" if c.status == "merged" else "warn")
+        return True
+
+    def _branch_status(
+        self, d: Delivery, status: str, note: str | None, command: str | None = None, conflicts: list[str] | None = None
+    ) -> None:
+        self._emit("branch.status", id=d.id, status=status, note=note, command=command, conflicts=conflicts or [])
+
+    def _hall_log(self, line: str, level: str = "info") -> None:
+        hall = self._hall()
+        if hall:
+            self._log(hall.id, line, level)
+
+    def _say_hall(self, text: str) -> None:
+        hall = self._hall()
+        if hall:
+            self._say(hall.id, text)
 
     async def _drop_work(self, job: Job) -> None:
         work = self.works.pop(job.work_id or "", None)
@@ -525,13 +723,18 @@ class Engine:
         finally:
             await box.destroy()
 
-    async def _clone_repo(self, box: Sandbox, repo: str, branch: str | None = None) -> str:
-        """Clone the war target into the box; returns the base commit."""
+    async def _clone_repo(self, box: Sandbox, repo: str, branch: str | None = None) -> tuple[str, str | None]:
+        """Clone the war target into the box.
+
+        Returns the base commit and the branch it came from (None for a detached HEAD).
+        """
         if gitops.is_url(repo):
             await box.exec(["git", "clone", "-q", repo, WORKDIR], workdir=None)
+            _, name = await box.exec(["git", "symbolic-ref", "-q", "--short", "HEAD"], check=False)
+            base_branch = name.strip() or None
         else:
             bundle = gitops.cache_dir() / "bundles" / f"head-{secrets.token_hex(4)}.bundle"
-            await asyncio.to_thread(gitops.bundle_head, repo, bundle)
+            base_branch = await asyncio.to_thread(gitops.bundle_head, repo, bundle)
             try:
                 await box.copy_in(bundle, "/tmp/repo.bundle")
             finally:
@@ -540,7 +743,7 @@ class Engine:
         _, base = await box.exec(["git", "rev-parse", "HEAD"])
         if branch:
             await box.exec(["git", "checkout", "-q", "-b", branch])
-        return base.strip()
+        return base.strip(), base_branch
 
     async def _commit_all(self, box: Sandbox, work: Work, message: str) -> int:
         await box.exec(["sh", "-c", 'git add -A && (git diff --cached --quiet || git commit -q -m "$1")', "sh", message[:72]])
@@ -583,7 +786,7 @@ class Engine:
         event = {"type": type_, **fields}
         self.board.apply(event)
         self._out(event)
-        if self.store and type_ not in VISUAL_EVENTS and self._save_pending is None:
+        if self.store and type_ not in UNSAVED_EVENTS and self._save_pending is None:
             self._save_pending = asyncio.get_running_loop().call_later(SAVE_DELAY_S, self._save)
 
     def _save(self) -> None:
