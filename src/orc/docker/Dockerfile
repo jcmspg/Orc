@@ -7,7 +7,9 @@ RUN apt-get update \
         python3 python3-venv python3-pip python3-pytest python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+# Claude Code, OpenAI Codex CLI and GitHub Copilot CLI.
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot \
+    && npm cache clean --force
 
 # Agents run as `node`: Claude Code refuses --dangerously-skip-permissions as root.
 USER node

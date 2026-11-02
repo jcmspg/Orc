@@ -68,7 +68,7 @@ function TopBar() {
 }
 
 /** Runtimes the real engine can run inside black boxes (the simulation fakes them all). */
-const BOX_READY: Record<Backend, boolean> = { claude: true, cursor: true, copilot: false, codex: false };
+const BOX_READY: Record<Backend, boolean> = { claude: true, cursor: true, copilot: true, codex: true };
 
 function Barracks() {
   const [backend, setBackend] = useState<Backend>("claude");

@@ -114,10 +114,14 @@ Every peon has its own runtime, chosen in the Barracks when you train it. The de
 |---|---|---|---|
 | `claude` | Claude Code (`--dangerously-skip-permissions`) | `CLAUDE_CODE_OAUTH_TOKEN` (your Pro/Max subscription) or `ANTHROPIC_API_KEY` (API billing) | `claude setup-token` in your own terminal |
 | `cursor` | Cursor agent CLI (`--force`) | `CURSOR_API_KEY` | [cursor.com/dashboard/api](https://cursor.com/dashboard/api) |
-| `copilot`, `codex` | not yet | | greyed out in the Barracks |
+| `codex` | OpenAI Codex CLI (`codex exec --dangerously-bypass-approvals-and-sandbox`) | `CODEX_API_KEY` (an OpenAI API key, billed per use) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `copilot` | GitHub Copilot CLI (`--allow-all`) | `COPILOT_GITHUB_TOKEN` (a fine-grained token with the *Copilot Requests* permission; classic `ghp_` tokens don't work) | [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new) |
 
 Why tokens and not your normal login: the boxes can't see your home directory (that's the point), so
 they can't use `~/.claude` or `~/.cursor`. A token made for headless use is the clean way in.
+For the same reason a ChatGPT sign-in (`~/.codex/auth.json`) can't drive `codex` peons: orc never
+copies credential files into a box, so Codex needs an API key. Copilot only reads
+`COPILOT_GITHUB_TOKEN` from orc; your general `GH_TOKEN` / `GITHUB_TOKEN` are never forwarded.
 
 **Easiest: paste it in the app.** On first launch with no credentials, **Menu → Settings** opens by
 itself. Paste the token and press Save. orc writes it to `~/.config/orc/env` (created with mode 600,
@@ -183,6 +187,8 @@ app is killed instead, the engine notices within a couple of seconds and shuts i
 | `ORC_NO_SERVER` | unset | `1`: don't start `orc serve` from the app (run it yourself). |
 | `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` | | Claude Code credentials for the boxes. |
 | `CURSOR_API_KEY` | | Cursor credentials for the boxes. |
+| `CODEX_API_KEY` | | OpenAI API key for Codex in the boxes. |
+| `COPILOT_GITHUB_TOKEN` | | Fine-grained GitHub token for Copilot in the boxes. |
 
 The app also accepts `?sim` and `?server=ws://host:port/ws` in its URL.
 
@@ -252,7 +258,6 @@ docs/              architecture notes and images
 
 ## Roadmap
 
-- Copilot and Codex runtimes in the boxes.
 - Merge from the app, with diff view.
 - Network allow-lists for boxes; per-orc resource budgets.
 - Spend tracking per peon.

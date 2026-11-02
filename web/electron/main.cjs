@@ -23,7 +23,7 @@ const SESSION = OWN_SERVER ? crypto.randomBytes(24).toString("hex") : "";
 const QUERY = SIM
   ? "sim"
   : `server=${encodeURIComponent(`ws://127.0.0.1:${PORT}/ws${SESSION ? `?token=${SESSION}` : ""}`)}`;
-const EXTERNAL_HOSTS = new Set(["cursor.com", "www.cursor.com", "claude.com", "docs.claude.com", "code.claude.com", "github.com"]);
+const EXTERNAL_HOSTS = new Set(["cursor.com", "www.cursor.com", "claude.com", "docs.claude.com", "code.claude.com", "github.com", "platform.openai.com"]);
 const ENGINE_STOP_TIMEOUT_MS = 10_000;
 
 let server = null;
