@@ -70,7 +70,7 @@ class DockerSandbox:
     @classmethod
     async def create(cls, label: str, image: str = IMAGE) -> "DockerSandbox":
         name = f"orc-{_slug(label)}-{secrets.token_hex(3)}"
-        await _run(
+        run = asyncio.ensure_future(_run(
             "docker", "run", "-d",
             "--name", name,
             "--label", "orc=peon",
@@ -81,8 +81,23 @@ class DockerSandbox:
             "--cap-drop", "ALL",
             image,
             "sleep", "infinity",
-        )
+        ))
+        try:
+            await asyncio.shield(run)
+        except asyncio.CancelledError:
+            # The job was cancelled (quit, New village) mid-create: `docker run` keeps going,
+            # so wait for it and remove the container rather than leak it.
+            await asyncio.shield(cls._discard(run, name))
+            raise
         return cls(name)
+
+    @staticmethod
+    async def _discard(run: asyncio.Future[str], name: str) -> None:
+        try:
+            await run
+        except SandboxError:
+            return  # never created
+        await _run("docker", "rm", "-f", name)
 
     async def exec(
         self,
