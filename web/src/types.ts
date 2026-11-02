@@ -84,7 +84,12 @@ export interface Delivery {
 }
 
 /** Agent credentials the engine can save for black boxes. Values never reach the app. */
-export type CredentialName = "CLAUDE_CODE_OAUTH_TOKEN" | "ANTHROPIC_API_KEY" | "CURSOR_API_KEY";
+export type CredentialName =
+  | "CLAUDE_CODE_OAUTH_TOKEN"
+  | "ANTHROPIC_API_KEY"
+  | "CURSOR_API_KEY"
+  | "CODEX_API_KEY"
+  | "COPILOT_GITHUB_TOKEN";
 export type CredentialStatus = "env" | "saved" | "missing";
 
 export type OrcEvent =
@@ -132,4 +137,6 @@ export interface Engine {
   merge(id: string): void;
   setCredential(name: CredentialName, value: string): void;
   clearCredential(name: CredentialName): void;
+  /** Stop all work, destroy every black box and found the default village (starts with `board.reset`). */
+  newVillage(): void;
 }

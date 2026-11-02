@@ -8,7 +8,7 @@ export interface FeedLine extends LogLine {
 }
 
 export type Link = "sim" | "connecting" | "live" | "offline";
-export type MenuView = "main" | "settings" | "controls" | "quit";
+export type MenuView = "main" | "settings" | "controls" | "newVillage" | "quit";
 
 /** The engine's answer to a diff request. */
 export interface DiffReply {

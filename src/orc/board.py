@@ -84,6 +84,9 @@ class Delivery:
 
 class Board:
     def __init__(self) -> None:
+        self.clear()
+
+    def clear(self) -> None:
         self.orcs: dict[str, Orc] = {}
         self.edges: list[Edge] = []
         self.gold = 0
@@ -93,7 +96,9 @@ class Board:
     def apply(self, e: dict[str, Any]) -> None:
         kind = e["type"]
         orc = self.orcs.get(e.get("id", ""))
-        if kind == "orc.spawned":
+        if kind == "board.reset":
+            self.clear()
+        elif kind == "orc.spawned":
             data = e["orc"]
             self.orcs[data["id"]] = Orc(**data)
         elif kind == "edge.added":

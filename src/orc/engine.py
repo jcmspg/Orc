@@ -146,6 +146,9 @@ class Engine:
         self.store = store
         self._save_pending: asyncio.TimerHandle | None = None
         self._merging: set[str] = set()
+        # Handoffs scheduled to land after an animation; a reset cancels them so they can't reach the new village.
+        self._timers: set[asyncio.TimerHandle] = set()
+        self._resetting = False
 
     # --- lifecycle ---
 
@@ -160,22 +163,68 @@ class Engine:
         if saved and saved.orcs:
             self._restore(saved)
             return
-        self.spawn("chieftain", "claude")
-        self.spawn("coder", "claude")
-        self.spawn("coder", "claude")
-        self.spawn("reviewer", "claude")
+        self._found_village()
         hall = self._hall()
         if problem and hall:
             self._log(hall.id, f"{problem} Starting a new village.", "error")
 
+    def _found_village(self) -> None:
+        """The default village a first launch starts with."""
+        self.spawn("chieftain", "claude")
+        self.spawn("coder", "claude")
+        self.spawn("coder", "claude")
+        self.spawn("reviewer", "claude")
+
     async def shutdown(self) -> None:
+        await self._stop_all()
+        self._save()
+
+    async def _stop_all(self) -> int:
+        """Cancel every job and handoff and destroy every live black box; returns how many orcs had work."""
+        busy = sum(1 for o in self.board.orcs.values() if o.state != "idle" or (o.id in self.queues and not self.queues[o.id].empty()))
+        for handle in self._timers:
+            handle.cancel()
+        self._timers.clear()
         for task in self.workers.values():
             task.cancel()
         await asyncio.gather(*self.workers.values(), return_exceptions=True)
+        # Cancelling a worker cancels the gate or decision it was waiting on; drop any left over.
+        for futures in (self.gates, self.decisions):
+            for fut in futures.values():
+                fut.cancel()
+            futures.clear()
         for work in list(self.works.values()):
             if work.box:
                 await work.box.destroy()
-        self._save()
+        self.works.clear()
+        self.workers.clear()
+        self.queues.clear()
+        return busy
+
+    async def new_village(self) -> None:
+        """Throw the village away and found the default one, as on a first launch.
+
+        Branches already fetched into the user's repo are untouched: they are the user's now.
+        """
+        if self._resetting:
+            return
+        self._resetting = True
+        try:
+            busy = await self._stop_all()
+            self._seq = 0
+            self._slots = 0
+            self._emit("board.reset")
+            self._found_village()
+            hall = self._hall()
+            if hall:
+                stopped = ""
+                if busy:
+                    jobs = "job was" if busy == 1 else "jobs were"
+                    stopped = f" {busy} unfinished {jobs} stopped and their black boxes destroyed."
+                self._log(hall.id, f"A new village is founded.{stopped} Delivered branches stay in your repo.", "ok")
+            self._save()
+        finally:
+            self._resetting = False
 
     def _restore(self, saved: Saved) -> None:
         """Rebuild the saved village through ordinary events, so clients and the board agree."""
@@ -215,7 +264,11 @@ class Engine:
         """Apply one command from a client."""
         kind = op.get("op")
         oid = str(op.get("id", ""))
-        if kind == "spawn" and op.get("role") in ROLES and op.get("backend") in BACKENDS:
+        if self._resetting:
+            return  # the village these ops refer to is going away
+        if kind == "newVillage":
+            await self.new_village()
+        elif kind == "spawn" and op.get("role") in ROLES and op.get("backend") in BACKENDS:
             self.spawn(op["role"], op["backend"])
         elif kind == "command":
             self.command([str(i) for i in op.get("ids", [])], str(op.get("text", "")))
@@ -411,10 +464,9 @@ class Engine:
         if not await self._gate(oid, pending):
             raise Abort
         self._state(oid, "working", job.task)
-        loop = asyncio.get_running_loop()
         for w, task in orders:
             self._emit("orders.sent", **{"from": oid, "to": w.id, "label": task, "durationMs": int(self.flight_s * 1000)})
-            loop.call_later(self.flight_s, self._receive_order, w.id, task, oid)
+            self._later(self.flight_s, self._receive_order, w.id, task, oid)
             await asyncio.sleep(self.flight_s * 0.4)
         await asyncio.sleep(self.flight_s)
         self._log(oid, f"Orders delivered to {len(orders)} peons.", "ok")
@@ -491,7 +543,7 @@ class Engine:
         self._state(oid, "walking", title)
         self._emit("crate.sent", **{"from": oid, "to": reviewer.id, "label": "branch", "durationMs": int(self.walk_s * 1000)})
         review = Job("review", job.task, source=oid, attempt=job.attempt, work_id=work.id)
-        asyncio.get_running_loop().call_later(self.walk_s / 2, self._enqueue, reviewer.id, review)
+        self._later(self.walk_s / 2, self._enqueue, reviewer.id, review)
         await asyncio.sleep(self.walk_s)
 
     async def _review(self, oid: str, job: Job) -> None:
@@ -520,7 +572,7 @@ class Engine:
             self._state(oid, "walking")
             self._emit("crate.sent", **{"from": oid, "to": author.id, "label": "findings", "durationMs": int(self.walk_s * 1000)})
             fix = Job("code", job.task, source=oid, attempt=job.attempt + 1, work_id=work.id, findings=verdict.findings)
-            asyncio.get_running_loop().call_later(self.walk_s / 2, self._enqueue, author.id, fix)
+            self._later(self.walk_s / 2, self._enqueue, author.id, fix)
             await asyncio.sleep(self.walk_s)
             return
         if not verdict.approve:
@@ -562,7 +614,7 @@ class Engine:
         self._state(oid, "walking")
         if hall:
             self._emit("gold.delivered", **{"from": oid, "to": hall.id, "durationMs": int(self.walk_s * 1000)})
-        asyncio.get_running_loop().call_later(self.walk_s / 2, lambda: self._emit("gold.banked", amount=1))
+        self._later(self.walk_s / 2, self._emit, "gold.banked", amount=1)
         if work.box:
             await work.box.destroy()
         self.works.pop(work.id, None)
@@ -751,6 +803,16 @@ class Engine:
         return int(count.strip() or 0)
 
     # --- lookups and event helpers ---
+
+    def _later(self, delay: float, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
+        """call_later that a reset or shutdown can cancel."""
+
+        def fire() -> None:
+            self._timers.discard(handle)
+            fn(*args, **kwargs)
+
+        handle = asyncio.get_running_loop().call_later(delay, fire)
+        self._timers.add(handle)
 
     def _require_repo(self, oid: str) -> str:
         if not self.board.repo:

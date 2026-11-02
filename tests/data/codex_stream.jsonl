@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-000000000000"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... waiting for network (Connection failed: error sending request)"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I'll create the file, then show it."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc \"printf 'hi\\\\n' > hello.txt && cat hello.txt\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc \"printf 'hi\\\\n' > hello.txt && cat hello.txt\"","aggregated_output":"hi\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","type":"file_change","changes":[{"path":"/home/node/work/notes.txt","kind":"add"}],"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"/home/node/work/notes.txt","kind":"add"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Created hello.txt containing hi and added notes.txt."}}
+{"type":"turn.completed"}

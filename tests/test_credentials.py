@@ -61,6 +61,8 @@ def test_clear_removes_saved_value():
         ("CURSOR_API_KEY", "   ", "Paste"),
         ("CURSOR_API_KEY", "two words", "spaces"),
         ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-api03-x", "sk-ant-oat"),
+        ("CODEX_API_KEY", "key_abc", "sk-"),
+        ("COPILOT_GITHUB_TOKEN", "ghp_abc", "fine-grained"),
     ],
 )
 def test_rejects_bad_input(name, value, message):

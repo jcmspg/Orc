@@ -26,6 +26,15 @@ def test_client_gets_snapshot_then_live_events():
         assert spawned["orc"]["role"] == "tester"
         assert spawned["orc"]["hut"] == {"x": -150, "y": 199}  # fourth slot of the inner ring
 
+        # A new village arrives over the same socket as a mid-session reset, then the default units.
+        ws.send_json({"op": "newVillage"})
+        while ws.receive_json()["type"] != "board.reset":
+            pass  # the tester's arrival events
+        after = []
+        while len([e for e in after if e["type"] == "orc.spawned"]) < 4 or after[-1]["type"] != "orc.say":
+            after.append(ws.receive_json())
+        assert [e["orc"]["id"] for e in after if e["type"] == "orc.spawned"] == ["orc-1", "orc-2", "orc-3", "orc-4"]
+
 
 def test_engine_stops_itself_when_the_app_dies(monkeypatch):
     import asyncio

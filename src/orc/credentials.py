@@ -18,6 +18,8 @@ KNOWN = {
     "CLAUDE_CODE_OAUTH_TOKEN": "Claude subscription token",
     "ANTHROPIC_API_KEY": "Anthropic API key",
     "CURSOR_API_KEY": "Cursor API key",
+    "CODEX_API_KEY": "OpenAI API key for Codex",
+    "COPILOT_GITHUB_TOKEN": "GitHub token for Copilot",
 }
 
 LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$")
@@ -81,6 +83,10 @@ def validate(name: str, value: str) -> str:
         raise ValueError("Claude subscription tokens start with sk-ant-oat. Get one with `claude setup-token`.")
     if name == "ANTHROPIC_API_KEY" and not value.startswith("sk-ant-api"):
         raise ValueError("Anthropic API keys start with sk-ant-api.")
+    if name == "CODEX_API_KEY" and not value.startswith("sk-"):
+        raise ValueError("OpenAI API keys start with sk-. Create one at platform.openai.com/api-keys.")
+    if name == "COPILOT_GITHUB_TOKEN" and value.startswith("ghp_"):
+        raise ValueError("Copilot doesn't accept classic tokens (ghp_). Use a fine-grained token (github_pat_).")
     return value
 
 

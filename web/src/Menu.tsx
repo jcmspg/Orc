@@ -1,9 +1,9 @@
-// The in-game menu: resume, settings (agent credentials), controls, quit.
+// The in-game menu: resume, settings (agent credentials), controls, new village, quit.
 // Opened with Esc (when nothing is selected), the Menu button, or by closing the window.
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { engine } from "./engines";
-import { board, openMenu, useBoard, type MenuView } from "./store";
+import { board, onEvent, openMenu, useBoard, type MenuView } from "./store";
 import type { CredentialName, CredentialStatus } from "./types";
 
 interface CredentialInfo {
@@ -40,6 +40,31 @@ const CREDENTIALS: CredentialInfo[] = [
     ),
   },
   {
+    name: "CODEX_API_KEY",
+    label: "OpenAI API key",
+    runtime: "codex peons",
+    placeholder: "sk-proj-...",
+    help: (
+      <>
+        Create a key in <ExternalLink href="https://platform.openai.com/api-keys">OpenAI Platform → API keys</ExternalLink>{" "}
+        and paste it. Billed per use; a ChatGPT sign-in can't be shared with a black box.
+      </>
+    ),
+  },
+  {
+    name: "COPILOT_GITHUB_TOKEN",
+    label: "GitHub token for Copilot",
+    runtime: "copilot peons",
+    placeholder: "github_pat_...",
+    help: (
+      <>
+        Create a{" "}
+        <ExternalLink href="https://github.com/settings/personal-access-tokens/new">fine-grained token</ExternalLink>{" "}
+        with the <em>Copilot Requests</em> permission and paste it. Classic <code>ghp_</code> tokens don't work.
+      </>
+    ),
+  },
+  {
     name: "ANTHROPIC_API_KEY",
     label: "Anthropic API key (optional)",
     runtime: "claude peons",
@@ -69,6 +94,7 @@ export function Menu() {
         {view === "main" && <MainView />}
         {view === "settings" && <SettingsView />}
         {view === "controls" && <ControlsView />}
+        {view === "newVillage" && <NewVillageView />}
         {view === "quit" && <QuitView />}
       </div>
     </div>
@@ -86,6 +112,7 @@ function MainView() {
         </button>
         <button onClick={() => openMenu("settings")}>Settings</button>
         <button onClick={() => openMenu("controls")}>Controls</button>
+        <button onClick={() => openMenu("newVillage")}>New village</button>
         <button className="danger" onClick={() => openMenu("quit")}>
           Quit
         </button>
@@ -192,6 +219,53 @@ function ControlsView() {
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+function NewVillageView() {
+  const orcs = useBoard((s) => s.orcs);
+  const gold = useBoard((s) => s.gold);
+  const link = useBoard((s) => s.link);
+  const [founding, setFounding] = useState(false);
+  const busy = Object.values(orcs).filter((o) => o.state !== "idle").length;
+  const units = Object.keys(orcs).length;
+  const connected = link === "live" || link === "sim";
+  const stopWaiting = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopWaiting.current?.(), []);
+
+  const confirm = () => {
+    setFounding(true);
+    // The engine may take a moment to stop jobs and destroy boxes; close once the new village arrives.
+    // Listen before asking: the simulation answers synchronously.
+    stopWaiting.current = onEvent((e) => {
+      if (e.type === "board.reset") openMenu(null);
+    });
+    engine.newVillage();
+  };
+  const working =
+    busy === 0
+      ? ""
+      : link === "sim"
+        ? ` ${busy} ${busy === 1 ? "peon is" : "peons are"} still working; that work stops.`
+        : ` ${busy} ${busy === 1 ? "peon is" : "peons are"} still working; their jobs stop and their black boxes are destroyed.`;
+  return (
+    <>
+      <h2>Found a new village?</h2>
+      <p className="menu-error">
+        All {units} {units === 1 ? "unit" : "units"}, their logs, {gold} gold and the war target are lost.{working} This
+        can't be undone.
+      </p>
+      <p className="hint">Branches already delivered stay in your repo. You start over with the starting village.</p>
+      {!connected && <p className="hint">Waiting for the engine...</p>}
+      <div className="menu-buttons">
+        <button className="danger" autoFocus onClick={confirm} disabled={founding || !connected}>
+          {founding ? "Tearing down the village..." : "New village"}
+        </button>
+        <button onClick={() => openMenu("main")} disabled={founding}>
+          Cancel
+        </button>
+      </div>
     </>
   );
 }

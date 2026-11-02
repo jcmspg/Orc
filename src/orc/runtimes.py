@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 from typing import Any, Callable, Protocol
 
 from orc.sandbox import Sandbox
@@ -62,7 +63,7 @@ class ClaudeCodeRuntime:
         code, _ = await box.exec(argv, env_names=env, on_line=on_line, check=False)
         if code != 0 or result.get("is_error") or not result:
             detail = result.get("result") or "\n".join(noise[-5:]) or f"exit code {code}"
-            raise RuntimeError(f"Claude Code failed: {_first_line(str(detail))}")
+            raise RuntimeError(f"Claude Code failed: {_redact(_first_line(str(detail)), self.CREDENTIALS)}")
         return str(result.get("result", ""))
 
 
@@ -107,8 +108,125 @@ class CursorRuntime:
         code, _ = await box.exec(argv, env_names=self.CREDENTIALS, on_line=on_line, check=False)
         if code != 0 or result.get("is_error") or not result:
             detail = "\n".join(noise[-5:]) or result.get("result") or f"exit code {code}"
-            raise RuntimeError(f"Cursor failed: {_first_line(str(detail))}")
+            raise RuntimeError(f"Cursor failed: {_redact(_first_line(str(detail)), self.CREDENTIALS)}")
         return str(result.get("result", ""))
+
+
+class CodexRuntime:
+    """OpenAI Codex CLI in exec mode, authenticated with an API key.
+
+    A ChatGPT-plan login lives in ~/.codex/auth.json on the host, and host files never enter a
+    box, so boxes use the API key that `codex exec` reads from CODEX_API_KEY.
+    """
+
+    name = "codex"
+    CREDENTIALS = ("CODEX_API_KEY",)
+
+    async def run(self, box: Sandbox, prompt: str, on_log: LogFn, *, kind: str, hints: dict[str, Any]) -> str:
+        if not os.environ.get("CODEX_API_KEY"):
+            raise RuntimeError(
+                "Codex has no credentials inside the black box. Create an API key at "
+                "https://platform.openai.com/api-keys, then export CODEX_API_KEY before starting orc "
+                "(a ChatGPT login on your machine can't be shared with a box)."
+            )
+        answer: list[str] = []
+        state: dict[str, Any] = {"done": False, "error": ""}
+        noise: list[str] = []
+
+        def on_line(line: str) -> None:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                if line.strip():
+                    noise.append(line)
+                return
+            type_ = msg.get("type")
+            item = msg.get("item") or {}
+            if type_ == "item.started" and item.get("type") == "command_execution":
+                on_log(f"$ {_first_line(unwrap_shell(str(item.get('command', ''))))}", "cmd")
+            elif type_ == "item.completed":
+                if item.get("type") == "agent_message" and str(item.get("text", "")).strip():
+                    answer.append(str(item["text"]))
+                    on_log(_first_line(item["text"]), "info")
+                elif item.get("type") == "file_change":
+                    for change in item.get("changes") or []:
+                        on_log(f"edit {_relative(str(change.get('path', '')))}", "cmd")
+                elif item.get("type") in ("mcp_tool_call", "web_search"):
+                    on_log(describe_codex_item(item), "cmd")
+            elif type_ == "turn.completed":
+                state["done"] = True
+            elif type_ == "turn.failed":
+                state["error"] = str((msg.get("error") or {}).get("message", "turn failed"))
+            elif type_ == "error":
+                # Transient ("Reconnecting...") until a turn.failed says otherwise.
+                state["error"] = state["error"] or str(msg.get("message", ""))
+
+        argv = [
+            "codex", "exec", "--json",
+            # No approvals and no Codex sandbox: the box is the sandbox.
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--", prompt,
+        ]
+        code, _ = await box.exec(argv, env_names=self.CREDENTIALS, on_line=on_line, check=False)
+        if code != 0 or not state["done"]:
+            detail = state["error"] or "\n".join(noise[-5:]) or f"exit code {code}"
+            raise RuntimeError(f"Codex failed: {_redact(_first_line(detail, 300), self.CREDENTIALS)}")
+        return answer[-1] if answer else ""
+
+
+class CopilotRuntime:
+    """GitHub Copilot CLI in prompt mode, authenticated with a GitHub token."""
+
+    name = "copilot"
+    CREDENTIALS = ("COPILOT_GITHUB_TOKEN",)
+
+    async def run(self, box: Sandbox, prompt: str, on_log: LogFn, *, kind: str, hints: dict[str, Any]) -> str:
+        if not os.environ.get("COPILOT_GITHUB_TOKEN"):
+            raise RuntimeError(
+                "Copilot has no credentials inside the black box. Create a fine-grained personal access token "
+                'with the "Copilot Requests" permission at https://github.com/settings/personal-access-tokens/new, '
+                "then export COPILOT_GITHUB_TOKEN before starting orc."
+            )
+        answer: list[str] = []
+        result: dict[str, Any] = {}
+        errors: list[str] = []
+        noise: list[str] = []
+
+        def on_line(line: str) -> None:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                if line.strip():
+                    noise.append(line)  # auth and startup errors arrive as plain text
+                return
+            type_ = str(msg.get("type", ""))
+            data = msg.get("data") or {}
+            if type_ == "assistant.message" and str(data.get("content", "")).strip():
+                answer.append(str(data["content"]))
+                on_log(_first_line(data["content"]), "info")
+            elif type_ == "tool.execution_start":
+                on_log(describe_copilot_tool(str(data.get("toolName", "")), data.get("arguments")), "cmd")
+            elif type_ == "result":
+                result.update(msg)
+            elif type_.endswith("error") and data.get("message"):
+                errors.append(str(data["message"]))
+
+        argv = [
+            "copilot", "-p", prompt,
+            "--output-format", "json",
+            # Every tool, path and URL without prompts; the box is the sandbox.
+            "--allow-all", "--no-ask-user",
+            # Keep the box self-contained: no built-in GitHub MCP server acting on the user's account.
+            "--disable-builtin-mcps",
+            "--no-auto-update",
+            "--secret-env-vars=COPILOT_GITHUB_TOKEN",
+        ]
+        code, _ = await box.exec(argv, env_names=self.CREDENTIALS, on_line=on_line, check=False)
+        if code != 0 or not result or result.get("exitCode", 0) != 0:
+            plain = [ln for ln in noise if ln.strip().startswith("Error")] or noise[-5:]
+            detail = (errors[-1:] or ["\n".join(plain)])[0] or f"exit code {code}"
+            raise RuntimeError(f"Copilot failed: {_redact(_first_line(detail, 300), self.CREDENTIALS)}")
+        return answer[-1] if answer else ""
 
 
 class UnavailableRuntime:
@@ -158,6 +276,10 @@ def runtime_for(backend: str) -> Runtime:
         return ClaudeCodeRuntime()
     if backend == "cursor":
         return CursorRuntime()
+    if backend == "codex":
+        return CodexRuntime()
+    if backend == "copilot":
+        return CopilotRuntime()
     return UnavailableRuntime(backend)
 
 
@@ -189,6 +311,62 @@ def describe_cursor_tool(call: dict[str, Any]) -> str:
             return f"search {args['pattern']}"
         return name
     return "tool"
+
+
+WORKDIR_PREFIX = "/home/node/work/"
+
+
+def unwrap_shell(command: str) -> str:
+    """Codex reports commands as `/bin/bash -lc "<script>"`; show just the script."""
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return command
+    if len(parts) == 3 and parts[0].rsplit("/", 1)[-1] in ("bash", "sh", "zsh") and parts[1] in ("-lc", "-c"):
+        return parts[2]
+    return command
+
+
+def describe_codex_item(item: dict[str, Any]) -> str:
+    if item.get("type") == "mcp_tool_call":
+        return f"{item.get('server', 'mcp')}.{item.get('tool', 'tool')}"
+    if item.get("type") == "web_search":
+        return f"search {item.get('query', '')}"
+    return str(item.get("type", "tool"))
+
+
+def describe_copilot_tool(name: str, args: Any) -> str:
+    """Copilot's tools: bash takes a command, apply_patch a raw patch string, the rest mostly a path."""
+    if isinstance(args, str):
+        files = [
+            _relative(ln.split(":", 1)[1].strip())
+            for ln in args.splitlines()
+            if ln.startswith(("*** Add File:", "*** Update File:", "*** Delete File:"))
+        ]
+        return f"edit {', '.join(files)}" if files else name
+    args = args if isinstance(args, dict) else {}
+    if "command" in args:
+        return f"$ {_first_line(str(args['command']))}"
+    path = args.get("path") or args.get("file_path")
+    if path:
+        verb = "read" if name in ("view", "read", "read_file") else "edit"
+        return f"{verb} {_relative(str(path))}"
+    if "pattern" in args:
+        return f"search {args['pattern']}"
+    return name or "tool"
+
+
+def _relative(path: str) -> str:
+    return path.removeprefix(WORKDIR_PREFIX)
+
+
+def _redact(text: str, names: tuple[str, ...]) -> str:
+    """Some APIs echo a rejected key back in their error; never let a value reach the logs."""
+    for n in names:
+        value = os.environ.get(n)
+        if value and len(value) >= 4:
+            text = text.replace(value, f"${n}")
+    return text
 
 
 def _first_line(text: str, limit: int = 160) -> str:
