@@ -598,6 +598,280 @@ button.danger {
   padding: 2px 10px;
 }
 
+/* Spoils: delivered branches */
+.gold-button {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 10px;
+  background: rgba(255, 217, 74, 0.08);
+  border-color: #7a5d1e;
+}
+.gold-button.on {
+  border-color: #ffd94a;
+  background: rgba(255, 217, 74, 0.18);
+}
+.to-merge {
+  font-size: 11px;
+  color: #3b2400;
+  background: #ffd94a;
+  border-radius: 10px;
+  padding: 0 7px;
+}
+.spoils {
+  top: 258px;
+  left: 12px;
+  bottom: 226px;
+  width: clamp(280px, 25vw, 400px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.spoils-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.spoils-head h2 {
+  margin: 0;
+}
+.spoils-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 4px 0 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.spoil {
+  padding: 8px 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid #3e2814;
+  border-left: 3px solid #ffd94a;
+  border-radius: 4px;
+  background: rgba(245, 236, 214, 0.04);
+}
+.spoil.st-merged {
+  border-left-color: var(--ok);
+  opacity: 0.8;
+}
+.spoil.st-conflict,
+.spoil.st-moved {
+  border-left-color: var(--warn);
+}
+.spoil.st-missing {
+  border-left-color: var(--bad);
+  opacity: 0.75;
+}
+.spoil.st-bundled {
+  border-left-color: #9fd3ff;
+}
+.spoil-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.spoil-task {
+  font-family: var(--heading);
+  font-weight: normal;
+  font-size: 15px;
+  color: var(--parchment);
+}
+.spoil-top .pill {
+  flex: none;
+}
+.spoil-branch {
+  display: block;
+  margin-top: 2px;
+  color: var(--trim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spoil-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.spoil-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.ok-text {
+  color: #9be37a;
+}
+.spoil .row button {
+  padding: 4px 10px;
+}
+.spoil .confirm p {
+  margin: 0 0 4px;
+}
+.conflicts {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--warn);
+}
+.pill.st-delivered {
+  color: #ffd94a;
+}
+.pill.st-merged {
+  color: #9be37a;
+}
+.pill.st-conflict,
+.pill.st-moved {
+  color: var(--warn);
+}
+.pill.st-missing {
+  color: var(--bad);
+}
+.pill.st-bundled {
+  color: #9fd3ff;
+}
+.copy-command {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 4px 4px 8px;
+  background: #120a03;
+  border: 1px solid #3e2814;
+  border-radius: 4px;
+}
+.copy-command code {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+  color: #9fd3ff;
+}
+.copy-command button {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* Diff viewer */
+.diff-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 6, 2, 0.55);
+}
+.diff {
+  position: relative;
+  width: min(1100px, 100%);
+  height: min(86vh, 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+}
+.diff-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.diff-title {
+  flex: 1;
+  min-width: 0;
+}
+.diff-title h2 {
+  margin: 0 0 2px;
+}
+.diff-title code {
+  color: var(--muted);
+}
+.diff-stat {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 8px;
+  font-size: 12px;
+}
+.diff-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.diff-files a {
+  color: var(--trim);
+  font: 12px ui-monospace, monospace;
+  text-decoration: none;
+}
+.diff-files a:hover {
+  text-decoration: underline;
+}
+.diff-body {
+  flex: 1;
+  overflow: auto;
+  background: #120a03;
+  border: 1px solid #3e2814;
+  border-radius: 4px;
+}
+.diff-file + .diff-file {
+  border-top: 1px solid #3e2814;
+}
+.diff-file header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 10px;
+  background: #2b1b0c;
+  border-bottom: 1px solid #3e2814;
+}
+.diff-file header code {
+  flex: 1;
+  color: var(--trim);
+  font-weight: 600;
+}
+.d-add-n {
+  color: #9be37a;
+  font: 12px ui-monospace, monospace;
+}
+.d-del-n {
+  color: #ff8a80;
+  font: 12px ui-monospace, monospace;
+}
+.diff-file pre {
+  margin: 0;
+  padding: 4px 0;
+  font: 12px/1.5 ui-monospace, monospace;
+  min-width: max-content;
+}
+.diff-file pre div {
+  padding: 0 10px;
+  white-space: pre;
+}
+.d-add {
+  color: #c8f5b0;
+  background: rgba(95, 174, 58, 0.16);
+}
+.d-del {
+  color: #ffc4be;
+  background: rgba(255, 90, 79, 0.14);
+}
+.d-hunk {
+  color: #9fd3ff;
+  background: rgba(159, 211, 255, 0.07);
+}
+.d-meta {
+  color: var(--muted);
+}
+.d-ctx {
+  color: #d8cdb4;
+}
+.diff-body > .hint,
+.diff-body > .spoil-note {
+  padding: 10px;
+}
+
 /* Log levels */
 .l-cmd {
   color: #9fd3ff;
@@ -648,6 +922,9 @@ button.danger {
   .warlog {
     display: none;
   }
+  .spoils {
+    bottom: 112px;
+  }
 }
 
 /* Short windows: give the map the height. */
@@ -656,6 +933,9 @@ button.danger {
     display: none;
   }
   .unit {
+    bottom: 96px;
+  }
+  .spoils {
     bottom: 96px;
   }
 }
@@ -697,6 +977,17 @@ button.danger {
   }
   /* The help text isn't worth a third of a small screen. */
   .unit.compact {
+    display: none;
+  }
+  /* The spoils cover the map above the command bar. */
+  .spoils {
+    top: 110px;
+    right: 12px;
+    bottom: 104px;
+    width: auto;
+    z-index: 1;
+  }
+  .topbar .to-merge {
     display: none;
   }
 }

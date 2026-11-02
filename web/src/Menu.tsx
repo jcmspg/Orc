@@ -174,6 +174,7 @@ function ControlsView() {
     ["Zoom", "Mouse wheel"],
     ["Rotate", "Middle-drag, or Q / E"],
     ["Recentre", "H"],
+    ["Spoils (delivered branches)", "G, or click the gold"],
     ["Deselect / menu", "Esc"],
     ["Fullscreen", "F11"],
     ["Quit", "Ctrl+Q"],

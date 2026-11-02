@@ -12,7 +12,28 @@ type Job = {
   task: string;
   from?: string;
   attempt: number;
+  work?: SimWork;
 };
+
+/** One simulated branch of work, from first commit to delivery. */
+type SimWork = {
+  id: string;
+  owner: string;
+  task: string;
+  branch: string;
+  file: string;
+  tester: boolean;
+  /** Also edits the shared src/index.ts, so two such branches conflict. */
+  touchesIndex: boolean;
+  fixes: number;
+};
+
+/** What the simulated repo knows about a delivered branch. */
+type SimBranch = { work: SimWork; diff: string; mergedInto: string | null };
+
+// The simulated repo has `main` checked out and a free `develop` branch, so the
+// simulation shows both outcomes of an in-app merge.
+const SIM_CHECKOUT = "/home/you/war-target";
 
 const WALK_MS = 3200;
 
@@ -35,6 +56,91 @@ const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length
 const slug = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24).replace(/^-+|-+$/g, "") || "task";
 
+const fakeSha = () =>
+  Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+
+const camel = (s: string) =>
+  slug(s)
+    .split("-")
+    .map((w, i) => (i ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join("") || "task";
+
+/** A unified diff that looks like what a peon would plausibly have written for the task. */
+function fakeDiff(work: SimWork): string {
+  const name = camel(work.task.replace(/^[^:]*:\s*/, ""));
+  const out: string[] = [];
+  const newFile = (path: string, lines: string[]) => {
+    out.push(
+      `diff --git a/${path} b/${path}`,
+      "new file mode 100644",
+      `index 0000000..${fakeSha().slice(0, 7)}`,
+      "--- /dev/null",
+      `+++ b/${path}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((l) => `+${l}`),
+    );
+  };
+  if (work.tester) {
+    newFile(work.file, [
+      `import { describe, expect, it } from "vitest";`,
+      `import { ${name} } from "../src/${slug(work.task.replace(/^[^:]*:\s*/, ""))}";`,
+      "",
+      `describe("${name}", () => {`,
+      `  it("accepts valid input", () => {`,
+      `    expect(${name}({ value: "ok" })).toEqual({ ok: true });`,
+      "  });",
+      "",
+      `  it("rejects empty input", () => {`,
+      `    expect(${name}({ value: "" }).ok).toBe(false);`,
+      "  });",
+      ...(work.fixes ? ["", `  it("trims whitespace", () => {`, `    expect(${name}({ value: "  ok " }).ok).toBe(true);`, "  });"] : []),
+      "});",
+    ]);
+  } else {
+    newFile(work.file, [
+      `export interface ${name[0].toUpperCase()}${name.slice(1)}Input {`,
+      "  value: string;",
+      "}",
+      "",
+      `export function ${name}(input: ${name[0].toUpperCase()}${name.slice(1)}Input): { ok: boolean; error?: string } {`,
+      ...(work.fixes ? ["  if (input == null) return { ok: false, error: \"missing input\" };"] : []),
+      "  const value = input.value.trim();",
+      "  if (!value) {",
+      `    return { ok: false, error: "value is required" };`,
+      "  }",
+      "  return { ok: true };",
+      "}",
+    ]);
+  }
+  if (work.touchesIndex) {
+    out.push(
+      "diff --git a/src/index.ts b/src/index.ts",
+      `index ${fakeSha().slice(0, 7)}..${fakeSha().slice(0, 7)} 100644`,
+      "--- a/src/index.ts",
+      "+++ b/src/index.ts",
+      "@@ -1,6 +1,7 @@",
+      ` export { createApp } from "./app";`,
+      ` export { router } from "./router";`,
+      `-export const VERSION = "0.3.0";`,
+      `+export { ${name} } from "./${slug(work.task.replace(/^[^:]*:\s*/, ""))}";`,
+      `+export const VERSION = "0.3.1";`,
+      " ",
+      " export default createApp;",
+    );
+  }
+  return out.join("\n") + "\n";
+}
+
+/** `git diff --shortstat` for a diff. */
+function shortstat(diff: string): string {
+  const lines = diff.split("\n");
+  const files = lines.filter((l) => l.startsWith("diff --git ")).length;
+  const plus = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+  const minus = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+  const s = (n: number) => (n === 1 ? "" : "s");
+  return `${files} file${s(files)} changed, ${plus} insertion${s(plus)}(+)` + (minus ? `, ${minus} deletion${s(minus)}(-)` : "");
+}
+
 /** Hut positions: an inner ring of 6 around the town hall, then an outer ring of 10. */
 function slot(i: number) {
   if (i < 6) {
@@ -51,6 +157,8 @@ export class FakeEngine implements Engine {
   private queues = new Map<string, Job[]>();
   private gates = new Map<string, () => void>();
   private retries = new Map<string, () => void>();
+  private branches = new Map<string, SimBranch>();
+  private deliveredCount = 0;
 
   start(): void {
     board.setState({ link: "sim" });
@@ -154,6 +262,109 @@ export class FakeEngine implements Engine {
     if (on && this.gates.has(id)) this.approve(id);
   }
 
+  // --- spoils: delivered branches ---
+
+  diff(id: string): void {
+    const b = this.branches.get(id);
+    if (!b) return;
+    after(250, () => dispatch({ type: "branch.diff", id, text: b.diff, truncated: false, error: null }));
+  }
+
+  merge(id: string): void {
+    const b = this.branches.get(id);
+    const d = board.getState().deliveries.find((x) => x.id === id);
+    if (!b || !d || d.status === "merged") return;
+    const into = d.baseBranch ?? "main";
+    const manual = `git merge --no-ff ${d.branch}`;
+    // Branches already merged into the same target that also edited src/index.ts.
+    const clash = (target: string) =>
+      b.work.touchesIndex &&
+      [...this.branches.values()].some((o) => o !== b && o.mergedInto === target && o.work.touchesIndex);
+    after(600, () => {
+      if (into === "main") {
+        const conflicts = clash("main") ? ["src/index.ts"] : [];
+        const warn = conflicts.length ? ` It will conflict in ${conflicts.join(", ")}.` : "";
+        dispatch({
+          type: "branch.status",
+          id,
+          status: conflicts.length ? "conflict" : "delivered",
+          note: `main is checked out in ${SIM_CHECKOUT}, and orc never touches a working tree.${warn} Merge it there yourself:`,
+          command: manual,
+          conflicts,
+        });
+        this.hallLog(`Left ${d.branch} for you: main is checked out in ${SIM_CHECKOUT}. Run: ${manual}`, "warn");
+      } else if (clash(into)) {
+        dispatch({
+          type: "branch.status",
+          id,
+          status: "conflict",
+          note: `Merging into ${into} would conflict in 1 file(s). Nothing was changed. Resolve it yourself:`,
+          command: `git switch ${into} && ${manual}`,
+          conflicts: ["src/index.ts"],
+        });
+        this.hallLog(`${d.branch} conflicts with ${into} in src/index.ts. Nothing was merged.`, "warn");
+      } else {
+        b.mergedInto = into;
+        const commit = fakeSha();
+        dispatch({ type: "branch.merged", id, into, commit });
+        this.hallLog(`Merged ${d.branch} into ${into} (${commit.slice(0, 8)}).`, "ok");
+        const hall = this.hall();
+        if (hall) dispatch({ type: "orc.say", id: hall.id, text: "More gold for the horde!" });
+      }
+    });
+  }
+
+  private newWork(orc: Orc, task: string): SimWork {
+    const id = fakeSha().slice(0, 6);
+    const tester = orc.role === "tester";
+    return {
+      id,
+      owner: orc.id,
+      task,
+      branch: `orc/${slug(orc.name)}/${slug(task)}-${id}`,
+      file: tester ? `tests/${slug(task)}.test.ts` : `src/${slug(task)}.ts`,
+      tester,
+      touchesIndex: !tester && Math.random() < 0.5,
+      fixes: 0,
+    };
+  }
+
+  private deliver(work: SimWork): void {
+    // Every third delivery was started from `main` (checked out), the rest from `develop` (free).
+    const baseBranch = this.deliveredCount++ % 3 === 0 ? "main" : "develop";
+    const diff = fakeDiff(work);
+    this.branches.set(work.id, { work, diff, mergedInto: null });
+    dispatch({
+      type: "branch.delivered",
+      delivery: {
+        id: work.id,
+        branch: work.branch,
+        task: work.task,
+        owner: work.owner,
+        repo: board.getState().repo ?? SIM_CHECKOUT,
+        base: fakeSha(),
+        baseBranch,
+        head: fakeSha(),
+        stat: shortstat(diff),
+        status: "delivered",
+        note: null,
+        command: null,
+        conflicts: [],
+        mergeCommit: null,
+        bundle: null,
+        at: Date.now(),
+      },
+    });
+    const where = `Branch ${work.branch} is in your repo. Look it over and merge it from the spoils.`;
+    this.log(work.owner, where, "ok");
+    this.hallLog(`Gold! ${where}`, "ok");
+  }
+
+  private hallLog(line: string, level: LogLevel): void {
+    const hall = this.hall();
+    if (hall) this.log(hall.id, line, level);
+  }
+
   // --- job flow ---
 
   private enqueue(id: string, job: Job): void {
@@ -234,8 +445,9 @@ export class FakeEngine implements Engine {
     after(1500, () => {
       const orc = this.get(id);
       if (!orc) return;
-      const branch = `orc/${slug(orc.name)}/${slug(job.task)}`;
-      const file = orc.role === "tester" ? `tests/${slug(job.task)}.test.ts` : `src/${slug(job.task)}.ts`;
+      const work = (job.work ??= this.newWork(orc, job.task));
+      if (fixing) work.fixes = job.attempt;
+      const { branch, file } = work;
       const cmds = fixing
         ? [`git switch ${branch}`, `edit ${file}`, "npm test", 'git commit -am "address review"']
         : [`git switch -c ${branch}`, "npm ci", `edit ${file}`, "npm test", `git commit -am "${job.task.slice(0, 40)}"`];
@@ -258,13 +470,13 @@ export class FakeEngine implements Engine {
           this.log(id, `Exported ${branch} from the black box.`, "ok");
           const reviewer = this.reviewerFor(id);
           if (!reviewer) {
-            this.deliverGold(id, () => this.next(id));
+            this.deliverGold(id, work, () => this.next(id));
             return;
           }
           this.setState(id, "walking", title);
           dispatch({ type: "crate.sent", from: id, to: reviewer.id, label: "branch", durationMs: WALK_MS });
           after(WALK_MS / 2, () =>
-            this.enqueue(reviewer.id, { kind: "review", task: job.task, from: id, attempt: job.attempt }),
+            this.enqueue(reviewer.id, { kind: "review", task: job.task, from: id, attempt: job.attempt, work }),
           );
           after(WALK_MS, () => this.next(id));
         });
@@ -286,13 +498,13 @@ export class FakeEngine implements Engine {
         this.setState(id, "walking");
         dispatch({ type: "crate.sent", from: id, to: author.id, label: "findings", durationMs: WALK_MS });
         after(WALK_MS / 2, () =>
-          this.enqueue(author.id, { kind: "code", task: job.task, from: id, attempt: job.attempt + 1 }),
+          this.enqueue(author.id, { kind: "code", task: job.task, from: id, attempt: job.attempt + 1, work: job.work }),
         );
         after(WALK_MS, () => this.next(id));
         return;
       }
       this.log(id, `Approved ${author.name}'s work. Hauling gold to the town hall.`, "ok");
-      this.deliverGold(id, () => this.next(id));
+      this.deliverGold(id, job.work, () => this.next(id));
     });
   }
 
@@ -304,8 +516,9 @@ export class FakeEngine implements Engine {
     });
   }
 
-  private deliverGold(id: string, done: () => void): void {
+  private deliverGold(id: string, work: SimWork | undefined, done: () => void): void {
     const hall = this.hall();
+    if (work) this.deliver(work);
     if (!hall) {
       dispatch({ type: "gold.banked", amount: 1 });
       done();

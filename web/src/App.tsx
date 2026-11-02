@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { engine } from "./engines";
 import { GameView } from "./game/GameView";
 import { Menu, hasAnyCredential } from "./Menu";
-import { openMenu, select, useBoard, type Link } from "./store";
+import { DiffViewer, SpoilsPanel } from "./Spoils";
+import { openMenu, select, toggleSpoils, useBoard, type Link } from "./store";
 import type { Backend, Orc, OrcState, Role } from "./types";
 
 const STATE_LABEL: Record<OrcState, string> = {
@@ -38,6 +39,8 @@ export default function App() {
       <UnitPanel />
       <WarLog />
       <CommandBar />
+      <SpoilsPanel />
+      <DiffViewer />
       <Menu />
     </div>
   );
@@ -47,17 +50,27 @@ function TopBar() {
   const orcs = useBoard((s) => s.orcs);
   const gold = useBoard((s) => s.gold);
   const link = useBoard((s) => s.link);
+  const deliveries = useBoard((s) => s.deliveries);
+  const spoilsOpen = useBoard((s) => s.spoils);
   const list = Object.values(orcs);
   const busy = list.filter((o) => o.state !== "idle").length;
   const waiting = list.filter((o) => o.state === "awaiting").length;
   const failed = list.filter((o) => o.state === "failed").length;
+  const unmerged = deliveries.filter((d) => d.status === "delivered" || d.status === "conflict").length;
   return (
     <div className="topbar panel">
       <button className="menu-button" onClick={() => openMenu("main")} title="Menu (Esc)">
         Menu
       </button>
       <span className="brand">ORC</span>
-      <span className="gold">{gold} gold</span>
+      <button
+        className={`gold-button${spoilsOpen ? " on" : ""}`}
+        onClick={() => toggleSpoils()}
+        title="Spoils: delivered branches (G)"
+      >
+        <span className="gold">{gold} gold</span>
+        {unmerged > 0 && <span className="to-merge">{unmerged} to merge</span>}
+      </button>
       <span>{list.length} peons</span>
       <span>{busy} busy</span>
       {waiting > 0 && <span className="warn">{waiting} awaiting orders</span>}
@@ -257,8 +270,8 @@ function WarTarget() {
         </button>
       </div>
       <p className="hint">
-        Peons work on copies in black boxes. Finished work lands here as <code>orc/...</code> branches for you to
-        merge.
+        Peons work on copies in black boxes. Finished work lands here as <code>orc/...</code> branches; click the
+        gold to look them over and merge.
       </p>
     </form>
   );

@@ -53,6 +53,12 @@ export class RemoteEngine implements Engine {
   setRepo(repo: string): void {
     this.send({ op: "setRepo", repo });
   }
+  diff(id: string): void {
+    this.send({ op: "diff", id });
+  }
+  merge(id: string): void {
+    this.send({ op: "merge", id });
+  }
   setCredential(name: CredentialName, value: string): void {
     this.send({ op: "setCredential", name, value });
   }

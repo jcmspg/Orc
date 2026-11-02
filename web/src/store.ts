@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
-import type { CredentialName, CredentialStatus, Edge, LogLine, Orc, OrcEvent } from "./types";
+import type { CredentialName, CredentialStatus, Delivery, Edge, LogLine, Orc, OrcEvent } from "./types";
 
 export interface FeedLine extends LogLine {
   orcId: string;
@@ -10,6 +10,13 @@ export interface FeedLine extends LogLine {
 export type Link = "sim" | "connecting" | "live" | "offline";
 export type MenuView = "main" | "settings" | "controls" | "quit";
 
+/** The engine's answer to a diff request. */
+export interface DiffReply {
+  text: string;
+  truncated: boolean;
+  error: string | null;
+}
+
 export interface BoardState {
   orcs: Record<string, Orc>;
   order: string[];
@@ -18,14 +25,22 @@ export interface BoardState {
   selected: string[];
   feed: FeedLine[];
   repo: string | null;
+  /** Delivered branches, oldest first. */
+  deliveries: Delivery[];
+  /** Latest diff reply per delivery id. */
+  diffs: Record<string, DiffReply>;
   link: Link;
   /** Which credentials the engine has (never their values); null until it reports. */
   credentials: Record<CredentialName, CredentialStatus> | null;
   credentialError: string | null;
   menu: MenuView | null;
+  /** Spoils panel open. */
+  spoils: boolean;
+  /** Delivery whose diff is on screen. */
+  viewing: string | null;
 }
 
-const EMPTY = { orcs: {}, order: [], edges: [], gold: 0, selected: [], feed: [], repo: null };
+const EMPTY = { orcs: {}, order: [], edges: [], gold: 0, selected: [], feed: [], repo: null, deliveries: [], diffs: {} };
 
 export const board = createStore<BoardState>(() => ({
   ...EMPTY,
@@ -33,10 +48,25 @@ export const board = createStore<BoardState>(() => ({
   credentials: null,
   credentialError: null,
   menu: null,
+  spoils: false,
+  viewing: null,
 }));
 
 export function openMenu(view: MenuView | null): void {
   board.setState({ menu: view });
+}
+
+export function toggleSpoils(open?: boolean): void {
+  board.setState((s) => ({ spoils: open ?? !s.spoils }));
+}
+
+export function viewDiff(id: string | null): void {
+  board.setState({ viewing: id });
+}
+
+function patchDelivery(s: BoardState, id: string, patch: Partial<Delivery>): BoardState {
+  if (!s.deliveries.some((d) => d.id === id)) return s;
+  return { ...s, deliveries: s.deliveries.map((d) => (d.id === id ? { ...d, ...patch } : d)) };
 }
 
 export const useBoard = <T>(selector: (s: BoardState) => T): T => useStore(board, selector);
@@ -97,6 +127,16 @@ function reduce(s: BoardState, e: OrcEvent): BoardState {
       return patchOrc(s, e.id, { autonomy: e.autonomy });
     case "gold.banked":
       return { ...s, gold: s.gold + e.amount };
+    case "branch.delivered": {
+      const others = s.deliveries.filter((d) => d.id !== e.delivery.id);
+      return { ...s, deliveries: [...others, e.delivery] };
+    }
+    case "branch.status":
+      return patchDelivery(s, e.id, { status: e.status, note: e.note, command: e.command, conflicts: e.conflicts });
+    case "branch.merged":
+      return patchDelivery(s, e.id, { status: "merged", mergeCommit: e.commit, note: null, command: null, conflicts: [] });
+    case "branch.diff":
+      return { ...s, diffs: { ...s.diffs, [e.id]: { text: e.text, truncated: e.truncated, error: e.error } } };
     default:
       return s;
   }
