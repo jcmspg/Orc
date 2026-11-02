@@ -109,6 +109,16 @@ so what you see stays in step with what happens.
   `assistant` text → `info` lines, `tool_use` → `cmd` lines, `result` → the return value.
 - `CursorRuntime`: `cursor-agent -p ... --output-format stream-json --force --trust --sandbox disabled`;
   `tool_call` / `started` → `cmd` lines; errors arrive as plain text on stderr.
+- `CodexRuntime`: `codex exec --json --dangerously-bypass-approvals-and-sandbox -- <prompt>` with
+  `CODEX_API_KEY`; `item.started` `command_execution` and `item.completed` `file_change` → `cmd` lines,
+  `agent_message` → `info` lines (the last one is the return value), `turn.completed` / `turn.failed`
+  end the run (`error` events before them are transient reconnects).
+- `CopilotRuntime`: `copilot -p ... --output-format json --allow-all --no-ask-user --disable-builtin-mcps
+  --no-auto-update` with `COPILOT_GITHUB_TOKEN`; `tool.execution_start` → `cmd` lines,
+  `assistant.message` content → `info` lines (the last one is the return value), `result.exitCode`
+  decides success; auth errors arrive as plain text. The built-in GitHub MCP server stays off so a box
+  can't act on the user's GitHub account.
+- Error details from every runtime have credential values redacted, since APIs may echo a rejected key.
 - `DummyRuntime` (`ORC_FAKE_AGENT=1`): no model calls.
 
 ## The app
