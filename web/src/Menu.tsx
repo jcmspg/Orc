@@ -40,6 +40,31 @@ const CREDENTIALS: CredentialInfo[] = [
     ),
   },
   {
+    name: "CODEX_API_KEY",
+    label: "OpenAI API key",
+    runtime: "codex peons",
+    placeholder: "sk-proj-...",
+    help: (
+      <>
+        Create a key in <ExternalLink href="https://platform.openai.com/api-keys">OpenAI Platform → API keys</ExternalLink>{" "}
+        and paste it. Billed per use; a ChatGPT sign-in can't be shared with a black box.
+      </>
+    ),
+  },
+  {
+    name: "COPILOT_GITHUB_TOKEN",
+    label: "GitHub token for Copilot",
+    runtime: "copilot peons",
+    placeholder: "github_pat_...",
+    help: (
+      <>
+        Create a{" "}
+        <ExternalLink href="https://github.com/settings/personal-access-tokens/new">fine-grained token</ExternalLink>{" "}
+        with the <em>Copilot Requests</em> permission and paste it. Classic <code>ghp_</code> tokens don't work.
+      </>
+    ),
+  },
+  {
     name: "ANTHROPIC_API_KEY",
     label: "Anthropic API key (optional)",
     runtime: "claude peons",
