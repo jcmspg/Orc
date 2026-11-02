@@ -83,4 +83,6 @@ export interface Engine {
   setRepo(repo: string): void;
   setCredential(name: CredentialName, value: string): void;
   clearCredential(name: CredentialName): void;
+  /** Stop all work, destroy every black box and found the default village (starts with `board.reset`). */
+  newVillage(): void;
 }

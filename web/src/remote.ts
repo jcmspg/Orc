@@ -59,6 +59,9 @@ export class RemoteEngine implements Engine {
   clearCredential(name: CredentialName): void {
     this.send({ op: "clearCredential", name });
   }
+  newVillage(): void {
+    this.send({ op: "newVillage" });
+  }
 
   private send(op: Record<string, unknown>): void {
     // Deliberately not queued while offline: replaying stale orders later would surprise the player.

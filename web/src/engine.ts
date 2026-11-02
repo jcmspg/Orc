@@ -30,7 +30,6 @@ const FINDINGS = [
   "magic number should be a named constant",
 ];
 
-const after = (ms: number, fn: () => void) => window.setTimeout(fn, ms);
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
 const slug = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24).replace(/^-+|-+$/g, "") || "task";
@@ -51,10 +50,33 @@ export class FakeEngine implements Engine {
   private queues = new Map<string, Job[]>();
   private gates = new Map<string, () => void>();
   private retries = new Map<string, () => void>();
+  /** Every pending step of every job, so a new village can stop them all. */
+  private timers = new Set<number>();
 
   start(): void {
     board.setState({ link: "sim" });
     if (this.seq > 0) return;
+    this.found();
+  }
+
+  newVillage(): void {
+    const busy = Object.values(board.getState().orcs).filter((o) => o.state !== "idle").length;
+    this.timers.forEach((t) => window.clearTimeout(t));
+    this.timers.clear();
+    this.queues.clear();
+    this.gates.clear();
+    this.retries.clear();
+    this.seq = 0;
+    this.workers = 0;
+    dispatch({ type: "board.reset" });
+    this.found();
+    const hall = this.hall();
+    const stopped = busy ? ` ${busy} unfinished ${busy === 1 ? "job was" : "jobs were"} stopped.` : "";
+    if (hall) this.log(hall.id, `A new village is founded.${stopped}`, "ok");
+  }
+
+  /** The village a fresh simulation starts with. */
+  private found(): void {
     dispatch({ type: "board.repo", repo: "(simulated)" });
     this.spawn("chieftain", "claude");
     this.spawn("coder", "claude");
@@ -191,7 +213,7 @@ export class FakeEngine implements Engine {
   private plan(id: string, job: Job): void {
     this.setState(id, "thinking", job.task);
     this.log(id, `Studying the war map: "${job.task}"`);
-    after(2200, () => {
+    this.after(2200, () => {
       const workers = this.commandTargets(id).filter((o) => o.role === "coder" || o.role === "tester");
       if (!workers.length) {
         this.log(id, "No peons to command. Train some coders first.", "warn");
@@ -210,15 +232,15 @@ export class FakeEngine implements Engine {
       this.gate(id, pending, () => {
         this.setState(id, "working", job.task);
         orders.forEach(({ w, task }, i) =>
-          after(i * 350, () => {
+          this.after(i * 350, () => {
             dispatch({ type: "orders.sent", from: id, to: w.id, label: task, durationMs: 900 });
-            after(900, () => {
+            this.after(900, () => {
               dispatch({ type: "orc.say", id: w.id, text: pick(VOICES) });
               this.enqueue(w.id, { kind: "code", task, from: id, attempt: 0 });
             });
           }),
         );
-        after(orders.length * 350 + 900, () => {
+        this.after(orders.length * 350 + 900, () => {
           this.log(id, `Orders delivered to ${orders.length} peons.`, "ok");
           this.next(id);
         });
@@ -231,7 +253,7 @@ export class FakeEngine implements Engine {
     const title = fixing ? `Fix review findings: ${job.task}` : job.task;
     this.setState(id, "thinking", title);
     this.log(id, fixing ? "Reading the reviewer's notes..." : "Cloning the repo into a fresh black box...");
-    after(1500, () => {
+    this.after(1500, () => {
       const orc = this.get(id);
       if (!orc) return;
       const branch = `orc/${slug(orc.name)}/${slug(job.task)}`;
@@ -246,8 +268,8 @@ export class FakeEngine implements Engine {
       };
       this.gate(id, pending, () => {
         this.setState(id, "working", title);
-        cmds.forEach((c, i) => after(i * 1000, () => this.log(id, `$ ${c}`, "cmd")));
-        after(cmds.length * 1000 + 300, () => {
+        cmds.forEach((c, i) => this.after(i * 1000, () => this.log(id, `$ ${c}`, "cmd")));
+        this.after(cmds.length * 1000 + 300, () => {
           if (!fixing && Math.random() < 0.15) {
             this.setState(id, "failed", title);
             this.log(id, "npm test exited with code 1 (2 failing). Black box kept for inspection.", "error");
@@ -263,10 +285,10 @@ export class FakeEngine implements Engine {
           }
           this.setState(id, "walking", title);
           dispatch({ type: "crate.sent", from: id, to: reviewer.id, label: "branch", durationMs: WALK_MS });
-          after(WALK_MS / 2, () =>
+          this.after(WALK_MS / 2, () =>
             this.enqueue(reviewer.id, { kind: "review", task: job.task, from: id, attempt: job.attempt }),
           );
-          after(WALK_MS, () => this.next(id));
+          this.after(WALK_MS, () => this.next(id));
         });
       });
     });
@@ -280,15 +302,15 @@ export class FakeEngine implements Engine {
     }
     this.setState(id, "reviewing", `Review: ${job.task}`);
     this.log(id, `Reading ${author.name}'s diff...`);
-    after(3000, () => {
+    this.after(3000, () => {
       if (job.attempt === 0 && Math.random() < 0.4) {
         this.log(id, `Changes requested: ${pick(FINDINGS)}.`, "warn");
         this.setState(id, "walking");
         dispatch({ type: "crate.sent", from: id, to: author.id, label: "findings", durationMs: WALK_MS });
-        after(WALK_MS / 2, () =>
+        this.after(WALK_MS / 2, () =>
           this.enqueue(author.id, { kind: "code", task: job.task, from: id, attempt: job.attempt + 1 }),
         );
-        after(WALK_MS, () => this.next(id));
+        this.after(WALK_MS, () => this.next(id));
         return;
       }
       this.log(id, `Approved ${author.name}'s work. Hauling gold to the town hall.`, "ok");
@@ -298,7 +320,7 @@ export class FakeEngine implements Engine {
 
   private chat(id: string, job: Job): void {
     this.setState(id, "thinking", job.task);
-    after(1800, () => {
+    this.after(1800, () => {
       this.log(id, `Nothing to review for "${job.task}" yet. Me review what coders bring.`);
       this.next(id);
     });
@@ -313,11 +335,19 @@ export class FakeEngine implements Engine {
     }
     this.setState(id, "walking");
     dispatch({ type: "gold.delivered", from: id, to: hall.id, durationMs: WALK_MS });
-    after(WALK_MS / 2, () => dispatch({ type: "gold.banked", amount: 1 }));
-    after(WALK_MS, done);
+    this.after(WALK_MS / 2, () => dispatch({ type: "gold.banked", amount: 1 }));
+    this.after(WALK_MS, done);
   }
 
   // --- helpers ---
+
+  private after(ms: number, fn: () => void): void {
+    const t = window.setTimeout(() => {
+      this.timers.delete(t);
+      fn();
+    }, ms);
+    this.timers.add(t);
+  }
 
   private get(id: string): Orc | undefined {
     return board.getState().orcs[id];

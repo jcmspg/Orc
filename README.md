@@ -166,7 +166,7 @@ are safe from the agents, but the boxes have network access and can see the cred
 | Rotate | middle-drag, or `Q` / `E` |
 | Recentre on the village | `H` |
 | Deselect | `Esc` |
-| Menu (settings, controls, quit) | `Esc` with nothing selected, or the **Menu** button |
+| Menu (settings, controls, new village, quit) | `Esc` with nothing selected, or the **Menu** button |
 | Quit | `Ctrl+Q` or close the window (asks first if peons are working) |
 | Fullscreen / devtools | `F11` / `F12` |
 
@@ -189,7 +189,9 @@ The app also accepts `?sim` and `?server=ws://host:port/ws` in its URL.
 **Saved village.** The engine keeps your units, their logs, gold and war target in
 `~/.local/state/orc/board.json` (`$XDG_STATE_HOME`, mode 600) and restores them on the next launch.
 Jobs in flight don't survive a restart: their black boxes are destroyed on quit, so an orc that was
-mid-task wakes up idle and says what was lost. To start a fresh village, quit orc and delete the file.
+mid-task wakes up idle and says what was lost. To start over, use **Menu → New village**: it stops all
+work, destroys every black box and replaces units, logs, gold and the war target with the starting village.
+Branches already delivered into your repo are kept.
 
 ## Development
 

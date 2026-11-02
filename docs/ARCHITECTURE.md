@@ -23,7 +23,7 @@ state-bearing ones; the World (`web/src/world/World.ts`) animates the visual one
 
 | Event | Fields | Meaning |
 |---|---|---|
-| `board.reset` | | Start of a snapshot: clear everything. |
+| `board.reset` | | Clear everything: units, edges, gold, war target. Starts a snapshot, or a new village mid-session. |
 | `board.repo` | `repo` | The war target (absolute path or URL), or `null`. |
 | `orc.spawned` | `orc` (full `Orc`) | A unit exists (in a snapshot, or newly trained). |
 | `edge.added` | `edge {from, to, kind}` | `command` (chieftain → worker) or `review` (worker → reviewer). |
@@ -57,8 +57,18 @@ App → server, `{ "op": ..., ... }`:
 | `setRepo` | `repo` |
 | `setCredential` | `name`, `value` (handled by the server, saved via `credentials.py`) |
 | `clearCredential` | `name` |
+| `newVillage` | (none) Start over: see below |
 
 Unknown or invalid ops are ignored. The app does not queue ops while offline.
+
+**newVillage** cancels every worker and pending handoff (`Engine._later` timers), cancels open gates
+and decisions, destroys every live black box (`Work.box`; temporary plan/review boxes are destroyed as
+their jobs unwind), clears works and resets the id and hut counters. It then emits `board.reset`
+followed by the default village (chieftain + 2 coders + reviewer, no war target, 0 gold), logs on the
+chieftain how many jobs were stopped, and saves immediately. Ops that arrive while this runs are
+ignored. Branches already fetched into the target repo are not touched. Clients handle the mid-session
+`board.reset` like a snapshot's: the reducer empties the board and the World removes every peon, hut,
+prop and label. The simulation (`FakeEngine.newVillage`) does the same with its own timers.
 
 ## Connection security and lifecycle
 
@@ -111,6 +121,7 @@ On boot, a saved village is replayed through `_emit` as `board.repo`, `orc.spawn
 (boxes are destroyed on shutdown), so every orc is restored `idle` with no task or pending decision,
 and one that was busy logs that its work was lost. A war target that no longer validates is dropped.
 An unreadable file is moved to `board.json.bad` and reported on the chieftain; a fresh village starts.
+The `newVillage` op overwrites the file with the new default village right away.
 
 ## Runtimes
 

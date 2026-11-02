@@ -2,7 +2,7 @@
 // board events and what the player sees.
 
 import * as THREE from "three";
-import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { board, onEvent, select } from "../store";
 import type { Orc, OrcEvent, Point } from "../types";
 import { Effects } from "./effects";
@@ -287,15 +287,26 @@ export class World {
     }
   }
 
-  /** Remove every unit and building (a fresh snapshot is about to arrive). */
+  /** Remove every unit and building (a fresh snapshot or a new village is about to arrive). */
   private clear(): void {
-    for (const p of this.peons.values()) this.scene.remove(p.root);
-    for (const s of this.sites.values()) for (const o of s.objects) this.scene.remove(o);
+    for (const p of this.peons.values()) this.detach(p.root);
+    for (const s of this.sites.values()) for (const o of s.objects) this.detach(o);
     this.peons.clear();
     this.sites.clear();
     this.swaying = [];
     this.torches = [];
     this.growing = [];
+  }
+
+  /**
+   * Take an object out of the scene along with its labels. CSS2DObject only drops its element when it is
+   * the object removed, so labels on a removed peon's children would otherwise stay on screen.
+   */
+  private detach(obj: THREE.Object3D): void {
+    this.scene.remove(obj);
+    obj.traverse((o) => {
+      if (o instanceof CSS2DObject) o.element.remove();
+    });
   }
 
   /** Where a visitor stands near someone's station, spread out so they don't stack. */
