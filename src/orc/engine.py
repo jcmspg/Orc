@@ -23,12 +23,14 @@ from typing import Any
 
 from orc import gitops, prompts
 from orc.board import Board, Orc
+from orc.persist import BoardStore, Saved
 from orc.runtimes import Runtime
 from orc.sandbox import WORKDIR, Sandbox
 
 WALK_S = 3.2
 FLIGHT_S = 0.9
 MAX_FIX_ROUNDS = 2
+SAVE_DELAY_S = 1.0
 
 NAMES = [
     "Durg", "Mogka", "Brakk", "Uzgash", "Rokhar", "Gruk", "Nazka", "Throg",
@@ -39,6 +41,8 @@ ROLES = ("chieftain", "coder", "reviewer", "tester")
 BACKENDS = ("claude", "cursor", "copilot", "codex")
 
 _KEEP = object()  # "leave the orc's task unchanged"
+# Events that only animate; they don't change the board, so they don't need saving.
+VISUAL_EVENTS = {"orc.say", "orders.sent", "crate.sent", "gold.delivered"}
 
 Emit = Callable[[dict[str, Any]], None]
 SandboxFactory = Callable[[str], Awaitable[Sandbox]]
@@ -95,6 +99,7 @@ class Engine:
         walk_s: float = WALK_S,
         flight_s: float = FLIGHT_S,
         rng: random.Random | None = None,
+        store: BoardStore | None = None,
     ) -> None:
         self.board = Board()
         self._out = emit
@@ -110,16 +115,29 @@ class Engine:
         self.works: dict[str, Work] = {}
         self._seq = 0
         self._slots = 0
+        self.store = store
+        self._save_pending: asyncio.TimerHandle | None = None
 
     # --- lifecycle ---
 
     def boot(self) -> None:
         if self.board.orcs:
             return
+        problem = None
+        try:
+            saved = self.store.load() if self.store else None
+        except ValueError as exc:
+            saved, problem = None, str(exc)
+        if saved and saved.orcs:
+            self._restore(saved)
+            return
         self.spawn("chieftain", "claude")
         self.spawn("coder", "claude")
         self.spawn("coder", "claude")
         self.spawn("reviewer", "claude")
+        hall = self._hall()
+        if problem and hall:
+            self._log(hall.id, f"{problem} Starting a new village.", "error")
 
     async def shutdown(self) -> None:
         for task in self.workers.values():
@@ -128,6 +146,36 @@ class Engine:
         for work in list(self.works.values()):
             if work.box:
                 await work.box.destroy()
+        self._save()
+
+    def _restore(self, saved: Saved) -> None:
+        """Rebuild the saved village through ordinary events, so clients and the board agree."""
+        repo = saved.repo
+        if repo:
+            try:
+                repo = gitops.validate_repo(repo)
+            except ValueError:
+                repo = None
+        self._emit("board.repo", repo=repo)
+        for orc in saved.orcs:
+            interrupted = orc.state != "idle" or orc.pending is not None
+            task = orc.task
+            orc.state, orc.task, orc.pending = "idle", None, None
+            self._emit("orc.spawned", orc=orc.to_dict())
+            self._start_worker(orc.id)
+            if interrupted and task:
+                self._log(orc.id, f'Interrupted when orc closed: "{task}". That work is lost; give the order again.', "warn")
+        for edge in saved.edges:
+            self._link(edge.source, edge.target, edge.kind)
+        if saved.gold:
+            self._emit("gold.banked", amount=saved.gold)
+        hall = self._hall()
+        if hall:
+            self._log(hall.id, "The village is back from its rest.", "ok")
+            if saved.repo and not repo:
+                self._log(hall.id, f"The old war target {saved.repo} is gone. Set a new one.", "warn")
+        self._seq = max((int(m.group(1)) for o in saved.orcs if (m := re.fullmatch(r"orc-(\d+)", o.id))), default=0)
+        self._slots = sum(1 for o in saved.orcs if o.role != "chieftain")
 
     async def handle(self, op: dict[str, Any]) -> None:
         """Apply one command from a client."""
@@ -175,8 +223,7 @@ class Engine:
             for c in self._by_role("coder") + self._by_role("tester"):
                 self._link(c.id, oid, "review")
 
-        self.queues[oid] = asyncio.Queue()
-        self.workers[oid] = asyncio.get_running_loop().create_task(self._worker(oid))
+        self._start_worker(oid)
         self._log(oid, f"{name} the {role} reporting for duty ({backend}).")
         self._say(oid, "Ready to work!")
         return oid
@@ -224,6 +271,10 @@ class Engine:
         if orc.state != "idle" or not queue.empty():
             self._log(oid, f"Queued: {job.task}")
         queue.put_nowait(job)
+
+    def _start_worker(self, oid: str) -> None:
+        self.queues[oid] = asyncio.Queue()
+        self.workers[oid] = asyncio.get_running_loop().create_task(self._worker(oid))
 
     async def _worker(self, oid: str) -> None:
         queue = self.queues[oid]
@@ -532,6 +583,16 @@ class Engine:
         event = {"type": type_, **fields}
         self.board.apply(event)
         self._out(event)
+        if self.store and type_ not in VISUAL_EVENTS and self._save_pending is None:
+            self._save_pending = asyncio.get_running_loop().call_later(SAVE_DELAY_S, self._save)
+
+    def _save(self) -> None:
+        """Write the board out; batched so a burst of log lines costs one write."""
+        if self._save_pending:
+            self._save_pending.cancel()
+            self._save_pending = None
+        if self.store:
+            self.store.save(self.board)
 
     def _state(self, oid: str, state: str, task: Any = _KEEP) -> None:
         if task is _KEEP:

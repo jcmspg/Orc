@@ -15,6 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from orc import credentials
 from orc.engine import Emit, Engine
+from orc.persist import BoardStore
 from orc.runtimes import runtime_for
 from orc.sandbox import DockerSandbox
 
@@ -33,7 +34,7 @@ class Hub:
 
 
 def default_engine(emit: Emit) -> Engine:
-    return Engine(emit, sandbox_factory=DockerSandbox.create, runtime_for=runtime_for)
+    return Engine(emit, sandbox_factory=DockerSandbox.create, runtime_for=runtime_for, store=BoardStore())
 
 
 def origin_allowed(origin: str | None) -> bool:

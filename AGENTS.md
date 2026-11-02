@@ -68,6 +68,7 @@ A bare `npx <tool>` from the wrong directory silently downloads an unrelated ver
 | Agent CLIs inside boxes | `src/orc/runtimes.py` |
 | Prompts and reply parsing | `src/orc/prompts.py` |
 | Host repo operations | `src/orc/gitops.py` |
+| Saved village | `src/orc/persist.py` |
 | Server | `src/orc/server.py`, `src/orc/__main__.py` |
 | 3D world | `web/src/world/` (`World.ts` scene/camera/input, `Peon.ts` animation, `models.ts`, `terrain.ts`, `effects.ts`) |
 | HUD | `web/src/App.tsx`, `web/src/styles.css` |
@@ -116,5 +117,6 @@ A bare `npx <tool>` from the wrong directory silently downloads an unrelated ver
 - Port 8787 is commonly taken by other local tools; orc uses 47820.
 - Scripted tests over CDP: pick a `--remote-debugging-port` that's free (a browser may already own
   9222/9333) and only attach to targets whose URL is the orc app, never to other pages.
-- Tests must never touch the real `~/.config/orc/env`; `tests/conftest.py` isolates it. When running the
-  app for tests, point `XDG_CONFIG_HOME` at a scratch directory.
+- Tests must never touch the real `~/.config/orc/env` or `~/.local/state/orc/board.json`;
+  `tests/conftest.py` isolates both. When running the app for tests, point `XDG_CONFIG_HOME` and
+  `XDG_STATE_HOME` at a scratch directory, or you'll restore (and overwrite) the user's village.

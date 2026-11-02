@@ -186,6 +186,11 @@ app is killed instead, the engine notices within a couple of seconds and shuts i
 
 The app also accepts `?sim` and `?server=ws://host:port/ws` in its URL.
 
+**Saved village.** The engine keeps your units, their logs, gold and war target in
+`~/.local/state/orc/board.json` (`$XDG_STATE_HOME`, mode 600) and restores them on the next launch.
+Jobs in flight don't survive a restart: their black boxes are destroyed on quit, so an orc that was
+mid-task wakes up idle and says what was lost. To start a fresh village, quit orc and delete the file.
+
 ## Development
 
 ```bash
@@ -231,6 +236,7 @@ src/orc/
   prompts.py       role prompts and parsers for plans and review verdicts
   gitops.py        the only operations on your repo: bundle HEAD, fetch finished branches
   board.py         server-side board state; events match web/src/types.ts
+  persist.py       saves the board between launches (~/.local/state/orc/board.json)
   server.py        FastAPI WebSocket server (`orc serve`)
   providers.py     direct model access (Anthropic API, host CLIs) as a library
 web/
@@ -245,7 +251,6 @@ docs/              architecture notes and images
 ## Roadmap
 
 - Copilot and Codex runtimes in the boxes.
-- Persist the board (units, history, gold) across launches.
 - Merge from the app, with diff view.
 - Network allow-lists for boxes; per-orc resource budgets.
 - Spend tracking per peon.

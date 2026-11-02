@@ -100,6 +100,18 @@ chieftain, animate gold, destroy the coder's box.
 Timing constants (`WALK_S`, `FLIGHT_S`) make the engine wait while the app animates walks and flights,
 so what you see stays in step with what happens.
 
+## Persistence
+
+`persist.BoardStore` saves the board (orcs with their logs, edges, gold, war target) to
+`$XDG_STATE_HOME/orc/board.json`. The engine schedules a save `SAVE_DELAY_S` after any state-bearing
+event (visual-only events are skipped) and saves once more on shutdown; writes are atomic and mode 600.
+
+On boot, a saved village is replayed through `_emit` as `board.repo`, `orc.spawned`, `edge.added` and
+`gold.banked`, so the board and any client stay in step. Jobs, gates, retries and boxes are not saved
+(boxes are destroyed on shutdown), so every orc is restored `idle` with no task or pending decision,
+and one that was busy logs that its work was lost. A war target that no longer validates is dropped.
+An unreadable file is moved to `board.json.bad` and reported on the chieftain; a fresh village starts.
+
 ## Runtimes
 
 `Runtime.run(box, prompt, on_log, *, kind, hints) -> str`. `kind` is `plan`, `code` or `review`;
