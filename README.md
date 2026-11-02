@@ -67,13 +67,19 @@ The chieftain starts supervised; workers start autonomous.
 **Failures** park the orc (smoke over its hut, red "x") with the error in its log until you press
 **Retry** or **Abandon**.
 
-**Gold** at the town hall means a reviewed branch landed in your repo:
+**Gold** at the town hall means a reviewed branch landed in your repo as `orc/...`. Click the gold (or press
+`G`) to open the **Spoils**: each branch with its task, owner and stat, a diff viewer, and a **Merge** button.
+
+Merging goes back into the branch the work started from. orc never touches your working tree or index, so it
+only merges into a branch that isn't checked out anywhere. For the usual case, `main` checked out in your repo,
+it shows the command to copy instead:
 
 ```bash
-git branch --list 'orc/*'
-git log main..orc/durg/add-login-page-1a2b3c
-git merge orc/durg/add-login-page-1a2b3c   # when you're happy
+git merge --no-ff orc/durg/add-login-page-1a2b3c
 ```
+
+If the merge would conflict, nothing is merged and the conflicting files are listed. You can also do it all by
+hand: `git branch --list 'orc/*'`, `git log main..orc/durg/add-login-page-1a2b3c`.
 
 ## Quick start
 
@@ -100,7 +106,7 @@ cd web && npm start              # builds the app, starts the engine, opens the 
 1. Click **Ozgar**, type your repo's path under **War target**, press **Set**.
 2. With Ozgar selected, type an order and press **Enter**: *"Add input validation to the signup form"*.
 3. Approve his battle plan. Watch the peons work; click any of them for its live log.
-4. When gold lands, merge the `orc/...` branch.
+4. When gold lands, open the Spoils (click the gold): look over the diff, then merge, or copy the command it gives you.
 
 Want to look around first without Docker or model calls? `ORC_SIM=1 npm start` runs a self-contained
 simulation, and `ORC_FAKE_AGENT=1 npm start` runs the real engine and black boxes with a dummy agent.
@@ -250,7 +256,7 @@ src/orc/
 web/
   electron/        desktop shell; starts the engine
   src/world/       Three.js village: terrain, models, peon animations, effects, camera
-  src/App.tsx      HUD: barracks, unit panel, war log, command bar
+  src/App.tsx      HUD: barracks, unit panel, war log, command bar   src/Spoils.tsx  gold: diff and merge
   src/remote.ts    WebSocket engine client      src/engine.ts  in-app simulation
 tests/             pytest suite (fakes.py has the temp-dir sandbox)
 docs/              architecture notes and images
@@ -258,7 +264,6 @@ docs/              architecture notes and images
 
 ## Roadmap
 
-- Merge from the app, with diff view.
 - Network allow-lists for boxes; per-orc resource budgets.
 - Spend tracking per peon.
 - More unit types (researcher, documenter) and custom personas.

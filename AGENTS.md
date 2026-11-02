@@ -39,7 +39,11 @@ A bare `npx <tool>` from the wrong directory silently downloads an unrelated ver
 
 1. **Never mount host paths into a box.** Code enters only as a git bundle (`docker cp`) and leaves
    only as a git bundle fetched into the target repo as `refs/heads/orc/...`. `gitops.py` is the only
-   module that touches the user's repo, and it must never check out, reset, or write the working tree.
+   module that touches the user's repo, and it must never check out, reset, or write the working tree
+   or the index. Besides fetching `orc/*` branches, the one other write allowed is the in-app merge: new
+   objects plus `git update-ref <new> <old>` on a branch that no worktree has checked out (verified with
+   `git worktree list --porcelain`). If the branch is checked out anywhere, do not move it: give the player
+   the command.
 2. **Credentials travel by name.** Pass secrets to boxes with `env_names` (→ `docker exec -e NAME`),
    never as argv values or file contents. Never log, print, or commit token values.
 3. **The event contract is shared.** Any change to an event or op must be made in all of:
@@ -71,7 +75,7 @@ A bare `npx <tool>` from the wrong directory silently downloads an unrelated ver
 | Saved village | `src/orc/persist.py` |
 | Server | `src/orc/server.py`, `src/orc/__main__.py` |
 | 3D world | `web/src/world/` (`World.ts` scene/camera/input, `Peon.ts` animation, `models.ts`, `terrain.ts`, `effects.ts`) |
-| HUD | `web/src/App.tsx`, `web/src/styles.css` |
+| HUD | `web/src/App.tsx`, `web/src/Spoils.tsx` (delivered branches, diff, merge), `web/src/styles.css` |
 | Engine clients | `web/src/remote.ts` (real), `web/src/engine.ts` (simulation), `web/src/engines.ts` (picks one) |
 | Desktop shell | `web/electron/main.cjs` |
 

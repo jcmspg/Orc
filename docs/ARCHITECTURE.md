@@ -37,6 +37,10 @@ state-bearing ones; the World (`web/src/world/World.ts`) animates the visual one
 | `crate.sent` | `from, to, label: branch\|findings, durationMs` | A peon walks a branch (or findings) over. |
 | `gold.delivered` | `from, to, durationMs` | A peon carries gold to the town hall. |
 | `gold.banked` | `amount` | Gold counter increments. |
+| `branch.delivered` | `delivery` (full `Delivery`) | A branch landed (in a snapshot, or just delivered): id, branch, task, owner, repo, base, `baseBranch`, head, stat, status, note, command, conflicts, `mergeCommit`, bundle, at. |
+| `branch.status` | `id, status, note, command, conflicts` | A delivery changed: `delivered`, `bundled`, `merged`, `conflict`, `missing`, `moved`. `command` is a git command for the player to run. |
+| `branch.merged` | `id, into, commit` | orc merged the delivery into `into`. |
+| `branch.diff` | `id, text, truncated, error` | Reply to a `diff` op: `git diff base...branch` (cut at 400 kB). Broadcast, not saved. |
 | `app.credentials` | `status {NAME: env\|saved\|missing}, error?` | Which agent credentials exist. Never values. |
 
 On connect, the server sends a snapshot (`board.reset`, `board.repo`, every `orc.spawned` with current
@@ -57,6 +61,8 @@ App → server, `{ "op": ..., ... }`:
 | `setRepo` | `repo` |
 | `setCredential` | `name`, `value` (handled by the server, saved via `credentials.py`) |
 | `clearCredential` | `name` |
+| `diff` | `id` (a delivery; the reply is a `branch.diff` event) |
+| `merge` | `id` (a delivery; the outcome is `branch.merged` or `branch.status`) |
 | `newVillage` | (none) Start over: see below |
 
 Unknown or invalid ops are ignored. The app does not queue ops while offline.
@@ -105,7 +111,27 @@ and enqueue a `code` job with them on the same `Work`; otherwise deliver.
 
 **deliver**: `git fetch <bundle> refs/heads/<branch>:refs/heads/<branch>` into the target repo (local
 repos only; URL targets keep the bundle in `~/.cache/orc/bundles`), log the branch on the owner and the
-chieftain, animate gold, destroy the coder's box.
+chieftain, animate gold, destroy the coder's box. It also records a `Delivery` on the board and emits
+`branch.delivered`. The `Work` remembers the base commit and the branch HEAD was on when the box cloned
+(`gitops.bundle_head` returns it); a detached HEAD leaves `baseBranch` null.
+
+## Spoils: diff and merge
+
+Delivered branches are the board's `deliveries`, shown in the app's Spoils panel (click the gold, or `G`).
+
+- **diff**: `gitops.diff` runs `git diff base...branch` against the repo's object store (never the working
+  tree), read up to 400 kB. Bundled deliveries are diffed in a scratch bare repo. Each request first
+  re-checks the delivery against the repo.
+- **merge**: only into `baseBranch`, and only plumbing: `git merge-tree --write-tree` (merged tree, or the
+  conflicting files), `git commit-tree` with both parents, `git update-ref <new> <old>` so a concurrent move
+  of the target fails instead of being overwritten. Nothing moves if any worktree (`git worktree list
+  --porcelain`) has the target checked out, which is the usual case for `main`: the delivery gets the
+  command to copy (`git merge --no-ff <branch>`) and a note saying why. Conflicts move nothing either; the
+  files are listed and the status is `conflict`. A detached base, a `moved` branch (tip no longer the
+  delivered commit) and remote repos (`bundled`: no repo to merge in) also get a command, never a merge.
+- **outside changes**: a branch deleted by the player becomes `missing`, one moved becomes `moved`, one
+  whose delivered commit reached the target becomes `merged`. Checked on boot, on `diff` and on `merge`,
+  and logged on the chieftain.
 
 Timing constants (`WALK_S`, `FLIGHT_S`) make the engine wait while the app animates walks and flights,
 so what you see stays in step with what happens.
@@ -113,7 +139,7 @@ so what you see stays in step with what happens.
 ## Persistence
 
 `persist.BoardStore` saves the board (orcs with their logs, edges, gold, war target) to
-`$XDG_STATE_HOME/orc/board.json`. The engine schedules a save `SAVE_DELAY_S` after any state-bearing
+`$XDG_STATE_HOME/orc/board.json`. Deliveries are saved too and re-checked against the repo on boot. The engine schedules a save `SAVE_DELAY_S` after any state-bearing
 event (visual-only events are skipped) and saves once more on shutdown; writes are atomic and mode 600.
 
 On boot, a saved village is replayed through `_emit` as `board.repo`, `orc.spawned`, `edge.added` and
@@ -150,4 +176,5 @@ The `newVillage` op overwrites the file with the new default village right away.
 - `web/src/world/World.ts`: builds huts, props and peons from `orc.spawned`, routes visual events to
   `Peon` and `Effects`, owns the RTS camera (auto-fits the village into the space the HUD leaves free).
 - `web/src/world/Peon.ts`: per-state procedural animation; walks for crates/gold; CSS2D labels.
-- `web/src/engine.ts`: the in-app simulation implements the same `Engine` interface with timers.
+- `web/src/engine.ts`: the in-app simulation implements the same `Engine` interface with timers; it fakes diffs and both merge outcomes (a checked-out `main`, a free `develop`).
+- `web/src/Spoils.tsx`: the Spoils panel, diff viewer, merge confirmation and copyable command.
