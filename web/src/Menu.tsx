@@ -233,6 +233,20 @@ function NewVillageView() {
   const connected = link === "live" || link === "sim";
   const stopWaiting = useRef<(() => void) | null>(null);
   useEffect(() => () => stopWaiting.current?.(), []);
+  // If the link drops, or the engine never answers, the op was lost: let the player try again.
+  useEffect(() => {
+    if (!founding) return;
+    if (!connected) {
+      stopWaiting.current?.();
+      setFounding(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      stopWaiting.current?.();
+      setFounding(false);
+    }, 20000);
+    return () => window.clearTimeout(t);
+  }, [founding, connected]);
 
   const confirm = () => {
     setFounding(true);
