@@ -324,6 +324,27 @@ select:focus {
 .unit.compact {
   bottom: auto;
 }
+.unit-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.unit-body > * {
+  flex-shrink: 0;
+}
+.unit h2,
+.unit h3 {
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+.unit .toggle {
+  margin-top: 6px;
+}
+.unit .hint {
+  margin: 4px 0;
+}
 .unit-head {
   display: flex;
   justify-content: space-between;
@@ -370,15 +391,19 @@ select:focus {
 .pending ul {
   margin: 0;
   padding-left: 18px;
+  max-height: 140px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 code {
   font: 12px/1.5 ui-monospace, monospace;
   color: var(--parchment);
 }
 .log {
-  flex: 1;
-  min-height: 80px;
+  flex: 1 0 140px;
   overflow-y: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font: 12px/1.5 ui-monospace, monospace;
   background: #120a03;
   border: 1px solid #3e2814;
