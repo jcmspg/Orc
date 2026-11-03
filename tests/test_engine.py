@@ -165,3 +165,42 @@ def test_bad_repo_path_is_reported(tmp_path):
     engine = asyncio.run(scenario())
     assert engine.board.repo is None
     assert engine.board.orcs["orc-1"].log[-1]["level"] == "error"
+
+
+def test_first_two_orcs_get_names_and_deliver_distinct_branches_in_parallel(repo):
+    async def scenario():
+        events: list = []
+        engine = make_engine(events, DummyRuntime(delay=0.2))
+        engine.boot()
+        await engine.handle({"op": "setRepo", "repo": str(repo)})
+        await engine.handle({"op": "setAutonomy", "id": "orc-1", "on": True})
+        await engine.handle({"op": "command", "ids": ["orc-1"], "text": "Add a login page"})
+        await until(lambda: engine.board.gold == 2 and all_idle(engine))
+        await engine.shutdown()
+        return engine, events
+
+    engine, events = asyncio.run(scenario())
+    workers = [o for o in engine.board.orcs.values() if o.role == "coder"]
+    assert [o.name for o in workers] == ["Durg", "Mogka"]
+    assert len({o.name for o in engine.board.orcs.values()}) == len(engine.board.orcs)
+
+    # Both coders were busy at the same time (parallel jobs), not one after the other.
+    busy_seen: set[str] = set()
+    overlapped = False
+    for e in events:
+        if e["type"] == "orc.state":
+            oid = e.get("id")
+            if e.get("state") == "working":
+                busy_seen.add(oid)
+            elif oid in busy_seen:
+                busy_seen.discard(oid)
+            if {w.id for w in workers} <= busy_seen:
+                overlapped = True
+    assert overlapped, "Durg and Mogka never worked simultaneously"
+
+    landed = branches(repo)
+    assert len(landed) == 2 and len(set(landed)) == 2
+    for branch in landed:
+        assert branch.startswith("orc/")
+    names = {w.name.lower() for w in workers}
+    assert {b.split("/")[1] for b in landed} == names
