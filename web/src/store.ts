@@ -104,7 +104,7 @@ function reduce(s: BoardState, e: OrcEvent): BoardState {
     case "board.repo":
       return { ...s, repo: e.repo };
     case "orc.spawned":
-      return { ...s, orcs: { ...s.orcs, [e.orc.id]: e.orc }, order: [...s.order, e.orc.id] };
+      return { ...s, orcs: { ...s.orcs, [e.orc.id]: e.orc }, order: s.order.includes(e.orc.id) ? s.order : [...s.order, e.orc.id] };
     case "edge.added":
       return { ...s, edges: [...s.edges, e.edge] };
     case "orc.state":

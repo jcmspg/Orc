@@ -148,6 +148,8 @@ export class World {
     const peon = new Peon(orc, site.station, site.facing, site.workPoint, smokePoint, this.fx);
     this.scene.add(peon.root);
     this.peons.set(orc.id, peon);
+    // A snapshot or a reconnect can bring orcs that are already busy.
+    if (orc.state !== "idle") peon.setState(orc.state);
     if (animate) {
       const peonScale = peon.root.scale.x;
       site.hut.scale.setScalar(0.01);
