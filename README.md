@@ -233,11 +233,16 @@ as stand-in boxes and a dummy agent. See [AGENTS.md](AGENTS.md) for conventions 
     && printf electron > path.txt
   ```
 
-- **"Engine offline" in the app:** the app starts `.venv/bin/orc serve` itself; check the terminal you
-  ran `npm start` from. If the port is taken, set `ORC_PORT`.
-- **Peon fails with "no credentials inside the black box":** export the variable for its runtime and
-  restart the app (the engine reads the environment at startup).
+- **"Engine offline" in the app:** the app starts `.venv/bin/orc serve` itself (default port 47820); check
+  the terminal you ran `npm start` from. If something else owns the port, the new engine exits and the app
+  talks to whatever is listening, so free 47820 or pick another with `ORC_PORT=47821 npm start`.
+- **Peon fails with "no credentials inside the black box":** paste the token in **Menu → Settings**, or add
+  it to `~/.config/orc/env`, or export the variable for its runtime and restart the app (the engine reads
+  the environment at startup).
 - **`orc-peon` image missing:** `.venv/bin/orc build-image`.
+- **Isolating a problem:** `ORC_FAKE_AGENT=1 npm start` uses real boxes with a dummy agent (no model calls),
+  so it separates Docker/git/UI trouble from runtime trouble. `ORC_SIM=1 npm start` runs the in-app
+  simulation with no engine or Docker, so it separates UI trouble from engine trouble. Run both from `web/`.
 
 ## Project layout
 
