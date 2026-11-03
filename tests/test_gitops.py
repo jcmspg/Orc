@@ -165,3 +165,20 @@ def test_head_branch_and_detached_head(repo):
     git(repo, "checkout", "-q", "--detach")
     assert gitops.head_branch(str(repo)) is None
     assert gitops.bundle_head(str(repo), repo.parent / "b" / "head.bundle") is None
+
+
+def test_merges_even_when_git_has_no_identity(repo, monkeypatch):
+    git(repo, "branch", "develop")
+    tip = commit_on(repo, "orc/durg/login-1a2b3c", {"login.py": "x = 1\n"}, "Add login", start="develop")
+    for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(key)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")  # never guess an identity from the hostname
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+
+    result = gitops.merge(str(repo), "orc/durg/login-1a2b3c", "develop", expect=tip)
+
+    assert result.status == "merged"
+    assert git(repo, "log", "-1", "--format=%an <%ae>", "develop") == "orc <orc@localhost>"

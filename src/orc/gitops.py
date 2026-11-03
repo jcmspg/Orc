@@ -151,6 +151,25 @@ class MergeResult:
     worktrees: list[str] = field(default_factory=list)
 
 
+def _commit_tree(repo: str, tree: str, target: str, tip: str, message: str) -> str:
+    """Make the merge commit as the user, or as "orc" when git has no identity to use.
+
+    Without this a machine that never ran `git config user.email` couldn't merge from the app.
+    """
+    env = os.environ.copy()
+    if _run(repo, "var", "GIT_COMMITTER_IDENT").returncode != 0:
+        for who in ("AUTHOR", "COMMITTER"):
+            env.setdefault(f"GIT_{who}_NAME", "orc")
+            env.setdefault(f"GIT_{who}_EMAIL", "orc@localhost")
+    result = subprocess.run(
+        ["git", "-C", repo, "commit-tree", tree, "-p", target, "-p", tip, "-m", message],
+        capture_output=True, text=True, check=False, env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git commit-tree failed: {result.stderr.strip() or result.stdout.strip()}")
+    return result.stdout.strip()
+
+
 def merge(repo: str, branch: str, into: str, *, expect: str | None = None) -> MergeResult:
     """Merge `branch` into `into` with plumbing only.
 
@@ -185,6 +204,6 @@ def merge(repo: str, branch: str, into: str, *, expect: str | None = None) -> Me
     if conflicts:
         return MergeResult("conflict", conflicts=conflicts)
     message = f"Merge branch '{branch}' into {into}"
-    commit = _git(repo, "commit-tree", lines[0].strip(), "-p", target, "-p", tip, "-m", message)
+    commit = _commit_tree(repo, lines[0].strip(), target, tip, message)
     _git(repo, "update-ref", "-m", f"orc: {message}", f"refs/heads/{into}", commit, target)
     return MergeResult("merged", commit=commit)
