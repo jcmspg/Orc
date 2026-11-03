@@ -934,6 +934,7 @@ button.danger {
   }
   .unit {
     bottom: 96px;
+    overflow-y: auto;
   }
   .spoils {
     bottom: 96px;
@@ -973,7 +974,9 @@ button.danger {
     left: 12px;
     right: 12px;
     width: auto;
-    max-height: 38vh;
+    /* Never reach up into the topbar/barracks rows: leave ~150px above. */
+    max-height: min(38vh, calc(100vh - 104px - 150px));
+    overflow-y: auto;
   }
   /* The help text isn't worth a third of a small screen. */
   .unit.compact {
@@ -989,5 +992,31 @@ button.danger {
   }
   .topbar .to-merge {
     display: none;
+  }
+}
+
+/* The compact panel hugs its content from the top; cap it above the command
+   bar and let it scroll rather than run off the bottom of a short window. */
+@media (max-width: 1280px), (max-height: 640px) {
+  .unit.compact {
+    max-height: calc(100vh - 64px - 112px);
+    overflow-y: auto;
+  }
+}
+@media (max-height: 640px) {
+  .unit.compact {
+    max-height: calc(100vh - 64px - 96px);
+  }
+}
+
+/* Very narrow: the barracks buttons wrap to several rows, so push the
+   spoils (and the sheet's ceiling) down below them. */
+@media (max-width: 700px) {
+  .spoils {
+    top: 150px;
+    overflow-y: auto;
+  }
+  .unit {
+    max-height: min(38vh, calc(100vh - 104px - 180px));
   }
 }
