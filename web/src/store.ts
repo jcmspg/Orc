@@ -100,7 +100,7 @@ function reduce(s: BoardState, e: OrcEvent): BoardState {
     case "app.credentials":
       return { ...s, credentials: e.status, credentialError: e.error ?? null };
     case "board.reset":
-      return { ...s, ...EMPTY };
+      return { ...s, ...EMPTY, viewing: null };
     case "board.repo":
       return { ...s, repo: e.repo };
     case "orc.spawned":

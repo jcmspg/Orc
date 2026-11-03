@@ -189,15 +189,18 @@ interface DiffFile {
 function parseDiff(text: string): DiffFile[] {
   const files: DiffFile[] = [];
   let cur: DiffFile | null = null;
+  let inHunk = false; // "--- " and "+++ " are file headers only before the first hunk; after it they're changed lines
   for (const line of text.split("\n")) {
     if (line.startsWith("diff --git ")) {
       const m = / b\/(.*)$/.exec(line);
       cur = { path: m ? m[1] : line.slice(11), added: 0, removed: 0, lines: [] };
       files.push(cur);
+      inHunk = false;
       continue;
     }
     if (!cur) continue;
-    if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+    if (line.startsWith("@@")) inHunk = true;
+    if (!inHunk && (line.startsWith("+++ ") || line.startsWith("--- "))) {
       if (line.startsWith("+++ b/")) cur.path = line.slice(6);
       continue;
     }

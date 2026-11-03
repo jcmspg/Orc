@@ -178,3 +178,37 @@ def test_saves_from_before_deliveries_still_load(tmp_path):
     del data["deliveries"]
     store.path.write_text(json.dumps(data))
     assert store.load().deliveries == []
+
+
+def test_valid_json_that_is_not_a_village_is_set_aside(tmp_path):
+    for junk in ("[]", "null", '"hello"', "42"):
+        path = tmp_path / "board.json"
+        path.write_text(junk)
+
+        async def launch():
+            engine = make_engine([], BoardStore(path))
+            engine.boot()
+            await engine.shutdown()
+            return engine.board
+
+        board = asyncio.run(launch())
+        assert len(board.orcs) == 4, junk  # a fresh village instead of a crash on boot
+        assert (tmp_path / "board.json.bad").read_text() == junk
+
+
+def test_a_failing_save_is_reported_once_and_does_not_crash(tmp_path):
+    class Broken(BoardStore):
+        def save(self, board):
+            raise OSError("disk full")
+
+    async def scenario():
+        engine = make_engine([], Broken(tmp_path / "board.json"))
+        engine.boot()
+        engine._save()
+        engine._save()
+        await engine.shutdown()  # the final save fails too, quietly
+        return engine.board
+
+    board = asyncio.run(scenario())
+    errors = [line["text"] for line in board.orcs["orc-1"].log if "Can't save" in line["text"]]
+    assert len(errors) == 1 and "disk full" in errors[0]

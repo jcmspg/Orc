@@ -145,6 +145,7 @@ class Engine:
         self._slots = 0
         self.store = store
         self._save_pending: asyncio.TimerHandle | None = None
+        self._save_failed = False
         self._merging: set[str] = set()
         # Handoffs scheduled to land after an animation; a reset cancels them so they can't reach the new village.
         self._timers: set[asyncio.TimerHandle] = set()
@@ -605,7 +606,7 @@ class Engine:
             where = f"Branch {work.branch} is bundled at {work.bundle} (remote repos can't be fetched into)."
             delivery.status = "bundled"
             delivery.note = "The war target is a remote repo, so the branch stays in a bundle. Fetch it into a clone:"
-            delivery.command = f"git fetch {shlex.quote(str(work.bundle))} {work.branch}:{work.branch}"
+            delivery.command = f"git fetch {shlex.quote(str(work.bundle))} {shlex.quote(f'{work.branch}:{work.branch}')}"
         self._emit("branch.delivered", delivery=delivery.to_dict())
         self._log(work.owner, where, "ok")
         if hall:
@@ -662,7 +663,7 @@ class Engine:
                 if not changed:
                     self._branch_status(d, d.status, d.note, d.command, d.conflicts)
                 return
-            manual = f"git merge --no-ff {d.branch}"
+            manual = f"git merge --no-ff {shlex.quote(d.branch)}"
             if not d.base_branch:
                 self._branch_status(
                     d, "delivered",
@@ -703,7 +704,7 @@ class Engine:
                 d, "conflict",
                 f"Merging into {into} would conflict in {len(conflicts)} file(s). Nothing was changed. "
                 "Resolve it yourself:",
-                f"git switch {into} && {manual}", conflicts,
+                f"git switch {shlex.quote(into)} && {manual}", conflicts,
             )
             self._hall_log(f"{d.branch} conflicts with {into} in {', '.join(conflicts)}. Nothing was merged.", "warn")
 
@@ -731,7 +732,7 @@ class Engine:
                 "orc only merges what it delivered. If you want this, merge it yourself:"
             )
             log = f"{d.branch} was moved outside orc ({d.head[:8]} -> {tip[:8]}); orc won't merge it."
-            return Look(tip, Change("moved", note, log, f"git merge --no-ff {d.branch}"))
+            return Look(tip, Change("moved", note, log, f"git merge --no-ff {shlex.quote(d.branch)}"))
         if d.status in ("missing", "moved"):
             return Look(tip, Change("delivered", "Back where orc left it.", f"{d.branch} is back where orc left it."))
         return Look(tip)
@@ -856,8 +857,16 @@ class Engine:
         if self._save_pending:
             self._save_pending.cancel()
             self._save_pending = None
-        if self.store:
+        if not self.store:
+            return
+        try:
             self.store.save(self.board)
+            self._save_failed = False
+        except OSError as exc:
+            hall = self._hall()
+            if hall and not self._save_failed:
+                self._log(hall.id, f"Can't save the village ({exc}). It will be lost when orc closes.", "error")
+            self._save_failed = True
 
     def _state(self, oid: str, state: str, task: Any = _KEEP) -> None:
         if task is _KEEP:

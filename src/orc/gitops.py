@@ -111,17 +111,17 @@ def diff(repo: str, base: str, head: str, limit: int = DIFF_LIMIT) -> tuple[str,
     costs neither memory nor a giant message to the app.
     """
     argv = ["git", "-C", repo, "diff", "--no-color", "--no-ext-diff", "--no-textconv", f"{base}...{head}", "--"]
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    assert proc.stdout is not None and proc.stderr is not None
-    data = proc.stdout.read(limit + 1)
-    truncated = len(data) > limit
-    if truncated:
-        proc.kill()
-        data = data[:limit]
-        cut = data.rfind(b"\n")
-        data = data[: cut + 1] if cut >= 0 else data  # end on a whole line
-    err = proc.stderr.read()
-    code = proc.wait()
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+        assert proc.stdout is not None and proc.stderr is not None
+        data = proc.stdout.read(limit + 1)
+        truncated = len(data) > limit
+        if truncated:
+            proc.kill()
+            data = data[:limit]
+            cut = data.rfind(b"\n")
+            data = data[: cut + 1] if cut >= 0 else data  # end on a whole line
+        err = proc.stderr.read()
+        code = proc.wait()
     if not truncated and code != 0:
         raise RuntimeError(f"git diff failed: {err.decode(errors='replace').strip()}")
     return data.decode(errors="replace"), truncated
@@ -196,7 +196,10 @@ def merge(repo: str, branch: str, into: str, *, expect: str | None = None) -> Me
     result = _run(repo, "merge-tree", "--write-tree", "--name-only", "--no-messages", target, tip)
     lines = result.stdout.splitlines()
     if result.returncode not in (0, 1) or not lines:
-        raise RuntimeError(f"git merge-tree failed: {result.stderr.strip() or result.stdout.strip()}")
+        detail = result.stderr.strip() or result.stdout.strip()
+        if "write-tree" in detail or "usage:" in detail:
+            detail = "this git is too old for in-app merges (needs git 2.38 or newer); merge it yourself"
+        raise RuntimeError(f"git merge-tree failed: {detail}")
     conflicts = sorted({line for line in lines[1:] if line.strip()}) if result.returncode == 1 else []
     worktrees = checked_out_at(repo, into)
     if worktrees:

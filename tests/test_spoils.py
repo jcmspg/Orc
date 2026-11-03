@@ -225,3 +225,21 @@ def test_a_branch_merged_by_hand_is_marked_merged(repo):
 
     d = asyncio.run(scenario())
     assert d.status == "merged" and d.note == "Merged into main outside orc."
+
+
+def test_generated_commands_quote_branch_names(repo):
+    # git allows shell metacharacters in branch names; the Copy button must not carry them into a terminal.
+    git(repo, "checkout", "-q", "-b", "feat;x&y")
+
+    async def scenario():
+        events: list = []
+        engine = await deliver_two(repo, events)
+        git(repo, "checkout", "-q", "-b", "elsewhere")
+        first, second = list(engine.board.deliveries)
+        await engine.handle({"op": "merge", "id": first})
+        await engine.handle({"op": "merge", "id": second})
+        await engine.shutdown()
+        return engine, second
+
+    engine, second = asyncio.run(scenario())
+    assert engine.board.deliveries[second].command == f"git switch 'feat;x&y' && git merge --no-ff {engine.board.deliveries[second].branch}"

@@ -47,9 +47,12 @@ class BoardStore:
             return None
         try:
             return _parse(json.loads(self.path.read_text()))
-        except (OSError, ValueError, TypeError, KeyError) as exc:
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
             bad = self.path.with_name(self.path.name + ".bad")
-            self.path.replace(bad)
+            try:
+                self.path.replace(bad)
+            except OSError:
+                pass  # can't keep it aside; still start a fresh village rather than fail to boot
             raise ValueError(f"Couldn't read the saved village ({exc}); moved it to {bad}.") from exc
 
     def save(self, board: Board) -> None:
@@ -69,7 +72,9 @@ class BoardStore:
         os.replace(tmp, self.path)  # atomic: a crash mid-write leaves the old file intact
 
 
-def _parse(data: dict[str, Any]) -> Saved:
+def _parse(data: Any) -> Saved:
+    if not isinstance(data, dict):
+        raise ValueError("not a village file")
     if data.get("version") != VERSION:
         raise ValueError(f"unknown version {data.get('version')!r}")
     known = {f.name for f in fields(Orc)}
