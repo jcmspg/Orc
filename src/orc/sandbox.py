@@ -97,7 +97,10 @@ class DockerSandbox:
             await run
         except SandboxError:
             return  # never created
-        await _run("docker", "rm", "-f", name)
+        try:
+            await _run("docker", "rm", "-f", name)
+        except SandboxError:
+            pass  # best effort: a failure here must not replace the cancellation that got us here
 
     async def exec(
         self,

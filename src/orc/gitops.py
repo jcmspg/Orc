@@ -62,8 +62,10 @@ def validate_repo(repo: str) -> str:
 
 def head_branch(repo: str) -> str | None:
     """The branch HEAD points at, or None when HEAD is detached."""
-    result = _run(repo, "symbolic-ref", "-q", "--short", "HEAD")
-    return (result.stdout.strip() or None) if result.returncode == 0 else None
+    # Not --short: with a tag of the same name it prints "heads/main", which is no branch name.
+    result = _run(repo, "symbolic-ref", "-q", "HEAD")
+    ref = result.stdout.strip() if result.returncode == 0 else ""
+    return ref.removeprefix("refs/heads/") or None
 
 
 def bundle_head(repo: str, out: Path) -> str | None:

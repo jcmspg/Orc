@@ -194,9 +194,7 @@ class Engine:
             for fut in futures.values():
                 fut.cancel()
             futures.clear()
-        for work in list(self.works.values()):
-            if work.box:
-                await work.box.destroy()
+        await asyncio.gather(*(w.box.destroy() for w in self.works.values() if w.box), return_exceptions=True)
         self.works.clear()
         self.workers.clear()
         self.queues.clear()
@@ -285,10 +283,14 @@ class Engine:
             self.set_autonomy(oid, bool(op.get("on")))
         elif kind == "setRepo":
             self.set_repo(str(op.get("repo", "")))
-        elif kind == "diff" and oid in self.board.deliveries:
-            await self.show_diff(oid)
-        elif kind == "merge" and oid in self.board.deliveries:
-            await self.merge(oid)
+        elif kind in ("diff", "merge") and oid in self.board.deliveries:
+            try:
+                await (self.show_diff if kind == "diff" else self.merge)(oid)
+            except Exception as exc:  # an op must never take the client's connection down with it
+                self._hall_log(f"The {kind} failed unexpectedly: {exc or exc.__class__.__name__}", "error")
+                self._branch_status(self.board.deliveries[oid], self.board.deliveries[oid].status,
+                                    f"The {kind} failed unexpectedly: {exc or exc.__class__.__name__}",
+                                    self.board.deliveries[oid].command, self.board.deliveries[oid].conflicts)
 
     # --- player actions ---
 
@@ -783,8 +785,8 @@ class Engine:
         """
         if gitops.is_url(repo):
             await box.exec(["git", "clone", "-q", repo, WORKDIR], workdir=None)
-            _, name = await box.exec(["git", "symbolic-ref", "-q", "--short", "HEAD"], check=False)
-            base_branch = name.strip() or None
+            _, ref = await box.exec(["git", "symbolic-ref", "-q", "HEAD"], check=False)
+            base_branch = ref.strip().removeprefix("refs/heads/") or None
         else:
             bundle = gitops.cache_dir() / "bundles" / f"head-{secrets.token_hex(4)}.bundle"
             base_branch = await asyncio.to_thread(gitops.bundle_head, repo, bundle)

@@ -182,3 +182,10 @@ def test_merges_even_when_git_has_no_identity(repo, monkeypatch):
 
     assert result.status == "merged"
     assert git(repo, "log", "-1", "--format=%an <%ae>", "develop") == "orc <orc@localhost>"
+
+
+def test_head_branch_ignores_a_tag_with_the_same_name(repo):
+    git(repo, "tag", "main")  # `symbolic-ref --short` would answer "heads/main"
+    assert gitops.head_branch(str(repo)) == "main"
+    git(repo, "checkout", "-q", "--detach")
+    assert gitops.head_branch(str(repo)) is None
