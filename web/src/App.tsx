@@ -198,6 +198,7 @@ function UnitDetail({ orc }: { orc: Orc }) {
         </span>
         <span className={`pill s-${orc.state}`}>{STATE_LABEL[orc.state]}</span>
       </div>
+      <div className="unit-body">
       {orc.task && <p className="task">{orc.task}</p>}
       {orc.role === "chieftain" && <WarTarget />}
 
@@ -246,6 +247,7 @@ function UnitDetail({ orc }: { orc: Orc }) {
             {l.text}
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
