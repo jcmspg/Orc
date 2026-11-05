@@ -75,3 +75,32 @@ class LocalSandbox:
     async def destroy(self) -> None:
         self.destroyed = True
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+class LocalTransport:
+    """Stands in for ssh: runs the remote command on this machine, and records what was run.
+
+    The command goes through the same quoting as production (`gitops.remote_command`) and a real
+    `sh -c`, so a word that would be interpreted by a remote shell is interpreted here too.
+    `down` makes every call fail like an unreachable host; `fail_on` fails commands whose argv
+    contains one of the given words (a transport that dies half way).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.down = False
+        self.fail_on: set[str] = set()
+
+    def run(self, argv, *, env=None, stdin=None, stdout=None, max_bytes=None):
+        import subprocess
+
+        from orc import gitops
+
+        self.calls.append(list(argv))
+        if self.down or self.fail_on & set(argv):
+            return subprocess.CompletedProcess(argv, 255, "", "ssh: connect to host fakehost port 22: Connection refused")
+        command = gitops.remote_command(argv, env)
+        return gitops.spawn(["sh", "-c", command], stdin=stdin, stdout=stdout, max_bytes=max_bytes, timeout=60)
+
+    def ran(self, word: str) -> list[list[str]]:
+        return [c for c in self.calls if word in c]

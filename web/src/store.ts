@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
-import type { CredentialName, CredentialStatus, Delivery, Edge, LogLine, Orc, OrcEvent } from "./types";
+import type { CredentialName, CredentialStatus, Delivery, Edge, LogLine, Orc, OrcEvent, Remote } from "./types";
 
 export interface FeedLine extends LogLine {
   orcId: string;
@@ -25,6 +25,8 @@ export interface BoardState {
   selected: string[];
   feed: FeedLine[];
   repo: string | null;
+  /** ssh settings when `repo` is a remote target, else null. */
+  remote: Remote | null;
   /** Delivered branches, oldest first. */
   deliveries: Delivery[];
   /** Latest diff reply per delivery id. */
@@ -40,7 +42,7 @@ export interface BoardState {
   viewing: string | null;
 }
 
-const EMPTY = { orcs: {}, order: [], edges: [], gold: 0, selected: [], feed: [], repo: null, deliveries: [], diffs: {} };
+const EMPTY = { orcs: {}, order: [], edges: [], gold: 0, selected: [], feed: [], repo: null, remote: null, deliveries: [], diffs: {} };
 
 export const board = createStore<BoardState>(() => ({
   ...EMPTY,
@@ -103,6 +105,8 @@ function reduce(s: BoardState, e: OrcEvent): BoardState {
       return { ...s, ...EMPTY, viewing: null };
     case "board.repo":
       return { ...s, repo: e.repo };
+    case "board.remote":
+      return { ...s, remote: e.remote };
     case "orc.spawned":
       return { ...s, orcs: { ...s.orcs, [e.orc.id]: e.orc }, order: s.order.includes(e.orc.id) ? s.order : [...s.order, e.orc.id] };
     case "edge.added":

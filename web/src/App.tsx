@@ -200,7 +200,12 @@ function UnitDetail({ orc }: { orc: Orc }) {
       </div>
       <div className="unit-body">
       {orc.task && <p className="task">{orc.task}</p>}
-      {orc.role === "chieftain" && <WarTarget />}
+      {orc.role === "chieftain" && (
+        <>
+          <WarTarget />
+          <RemoteTarget />
+        </>
+      )}
 
       <label className="toggle">
         <input type="checkbox" checked={orc.autonomy} onChange={(e) => engine.setAutonomy(orc.id, e.target.checked)} />
@@ -256,8 +261,10 @@ function UnitDetail({ orc }: { orc: Orc }) {
 /** The repo the chieftain's peons work on (cloned into black boxes, never edited in place). */
 function WarTarget() {
   const repo = useBoard((s) => s.repo);
-  const [draft, setDraft] = useState(repo ?? "");
-  useEffect(() => setDraft(repo ?? ""), [repo]);
+  const remote = useBoard((s) => s.remote);
+  const local = remote ? null : repo; // an ssh target is shown (and changed) in its own form
+  const [draft, setDraft] = useState(local ?? "");
+  useEffect(() => setDraft(local ?? ""), [local]);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (draft.trim()) engine.setRepo(draft.trim());
@@ -267,13 +274,111 @@ function WarTarget() {
       <h3>War target</h3>
       <div className="row">
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="/path/to/repo or https://...git" />
-        <button type="submit" disabled={!draft.trim() || draft.trim() === repo}>
+        <button type="submit" disabled={!draft.trim() || draft.trim() === local}>
           Set
         </button>
       </div>
       <p className="hint">
         Peons work on copies in black boxes. Finished work lands here as <code>orc/...</code> branches; click the
         gold to look them over and merge.
+      </p>
+    </form>
+  );
+}
+
+const SSH_KEY_HINTS = ["id_ed25519", "id_ecdsa", "id_rsa"];
+const SSH_KEY_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** How long to wait for the engine's answer before the form frees up (ConnectTimeout is 10 s). */
+const REMOTE_TIMEOUT_MS = 20000;
+
+/**
+ * A war target on another machine, reached over ssh: `user@host:path`, an optional port and the
+ * *name* of a key in ~/.ssh. The engine does the real validation and ssh; only names travel here.
+ */
+function RemoteTarget() {
+  const remote = useBoard((s) => s.remote);
+  const [target, setTarget] = useState(remote?.target ?? "");
+  const [port, setPort] = useState(remote?.port ? String(remote.port) : "");
+  const [key, setKey] = useState(remote?.key ?? "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    // Any new remote state (set, or cleared by a local repo) is the answer to the request.
+    setBusy(false);
+    setTarget(remote?.target ?? "");
+    setPort(remote?.port ? String(remote.port) : "");
+    setKey(remote?.key ?? "");
+  }, [remote]);
+  useEffect(() => {
+    if (!busy) return;
+    const t = window.setTimeout(() => setBusy(false), REMOTE_TIMEOUT_MS);
+    return () => window.clearTimeout(t);
+  }, [busy]);
+
+  const portNum = port.trim() === "" ? null : Number(port);
+  const problem =
+    target.trim() === ""
+      ? null
+      : !/^\S+:\S+$/.test(target.trim())
+        ? "Use user@host:path/to/repo."
+        : portNum !== null && !(Number.isInteger(portNum) && portNum > 0 && portNum < 65536)
+          ? "Port must be 1-65535."
+          : key.trim() !== "" && !SSH_KEY_NAME.test(key.trim())
+            ? "Key is a file name in ~/.ssh, not a path."
+            : null;
+  const same = remote !== null && remote.target === target.trim() && remote.port === portNum && (remote.key ?? "") === key.trim();
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!target.trim() || problem || busy) return;
+    setBusy(true);
+    engine.setRemote(target.trim(), portNum, key.trim() || null);
+  };
+  return (
+    <form className="target remote" onSubmit={submit}>
+      <h3>
+        SSH war target{" "}
+        {remote ? <span className="pill rs-on">ssh</span> : <span className="pill">off</span>}
+      </h3>
+      <div className="row">
+        <input
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          placeholder="user@host:path/to/repo"
+          aria-label="SSH target"
+          spellCheck={false}
+        />
+      </div>
+      <div className="row">
+        <input
+          className="port"
+          value={port}
+          onChange={(e) => setPort(e.target.value)}
+          inputMode="numeric"
+          placeholder="port"
+          aria-label="SSH port"
+        />
+        <input
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          list="ssh-key-names"
+          placeholder="key name in ~/.ssh"
+          aria-label="SSH key name"
+          spellCheck={false}
+        />
+        <datalist id="ssh-key-names">
+          {SSH_KEY_HINTS.map((k) => (
+            <option key={k} value={k} />
+          ))}
+        </datalist>
+        <button type="submit" disabled={!target.trim() || problem !== null || busy || same}>
+          {busy ? "Connecting..." : "Connect"}
+        </button>
+      </div>
+      {problem && <p className="hint bad-text">{problem}</p>}
+      <p className="hint">
+        Code is bundled over ssh into black boxes, never mounted. Finished branches come back as{" "}
+        <code>orc/...</code> and merges use the same safe rules there; if the branch is checked out on that machine
+        you get an <code>ssh</code> command to run. Only the key's <i>name</i> is sent. The host must already be in
+        your <code>known_hosts</code> (connect once from a terminal). Setting a local path above switches back.
       </p>
     </form>
   );
