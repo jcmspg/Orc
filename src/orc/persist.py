@@ -31,6 +31,7 @@ class Saved:
     gold: int
     repo: str | None
     deliveries: list[Delivery] = field(default_factory=list)
+    remote: dict[str, Any] | None = None  # ssh target, port and key *name*; absent in older saves
 
 
 class BoardStore:
@@ -59,6 +60,7 @@ class BoardStore:
         data = {
             "version": VERSION,
             "repo": board.repo,
+            "remote": board.remote,
             "gold": board.gold,
             "orcs": [o.to_dict() for o in board.orcs.values()],
             "edges": [e.to_dict() for e in board.edges],
@@ -94,10 +96,12 @@ def _parse(data: Any) -> Saved:
             raise ValueError("bad delivery entry")
         deliveries.append(Delivery.from_dict(raw))
     repo = data.get("repo")
+    remote = data.get("remote")
     return Saved(
         orcs=orcs,
         edges=edges,
         gold=int(data.get("gold", 0)),
         repo=repo if isinstance(repo, str) else None,
         deliveries=deliveries,
+        remote=remote if isinstance(remote, dict) and isinstance(remote.get("target"), str) else None,
     )

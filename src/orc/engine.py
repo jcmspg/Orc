@@ -232,6 +232,8 @@ class Engine:
             busy = await self._stop_all()
             self._seq = 0
             self._slots = 0
+            if self.board.remote:
+                gitops.forget_remote(str(self.board.remote["target"]))
             self._emit("board.reset")
             self._found_village()
             hall = self._hall()
@@ -248,12 +250,17 @@ class Engine:
     def _restore(self, saved: Saved) -> None:
         """Rebuild the saved village through ordinary events, so clients and the board agree."""
         repo = saved.repo
-        if repo:
+        remote = self._saved_remote(saved)
+        if remote:
+            gitops.register_remote(remote)  # not probed here: boot must not wait on the network
+        elif repo:
             try:
                 repo = gitops.validate_repo(repo)
             except ValueError:
                 repo = None
         self._emit("board.repo", repo=repo)
+        if remote:
+            self._emit("board.remote", remote=remote.to_dict())
         for orc in saved.orcs:
             interrupted = orc.state != "idle" or orc.pending is not None
             task = orc.task
@@ -269,7 +276,7 @@ class Engine:
         for d in saved.deliveries:
             self._emit("branch.delivered", delivery=d.to_dict())
         for d in saved.deliveries:
-            if d.status in OPEN_STATUSES:  # the player may have merged or deleted branches while orc slept
+            if d.status in OPEN_STATUSES and not gitops.looks_remote(d.repo):  # (remotes are checked on use, not at boot) the player may have merged or deleted branches while orc slept
                 self._report(d, self._look(d))
         hall = self._hall()
         if hall:
@@ -314,6 +321,8 @@ class Engine:
             self.set_autonomy(oid, bool(op.get("on")))
         elif kind == "setRepo":
             self.set_repo(str(op.get("repo", "")))
+        elif kind == "setRemote":
+            await self.set_remote(op)
         elif kind in ("diff", "merge") and oid in self.board.deliveries:
             await (self.show_diff if kind == "diff" else self.merge)(oid)
 
@@ -367,8 +376,40 @@ class Engine:
         if on:
             self._settle(self.gates, oid, True)
 
+    @staticmethod
+    def _saved_remote(saved: Saved) -> gitops.Remote | None:
+        """The ssh settings of a saved village, if they are valid and belong to its war target."""
+        if not saved.remote or saved.remote.get("target") != saved.repo:
+            return None
+        try:
+            return gitops.parse_remote(saved.remote["target"], saved.remote.get("port"), saved.remote.get("key"))
+        except ValueError:
+            return None  # a key that was removed, or a file that was edited: set the target again
+
+    async def set_remote(self, op: dict[str, Any]) -> None:
+        """Point the war target at a repo over ssh: `user@host:path`, optional port, key by name.
+
+        Everything is validated before ssh runs, and the remote is only registered once it answered
+        with a repo that has a commit. Branches are then fetched and merged there with the same rules
+        as a local repo (see gitops).
+        """
+        try:
+            remote = gitops.parse_remote(str(op.get("target", "")), op.get("port"), op.get("key"))
+            transport = await asyncio.to_thread(gitops.probe_remote, remote)
+        except ValueError as exc:
+            self._hall_log(f"Bad war target: {exc}", "error")
+            return
+        gitops.register_remote(remote, transport)
+        self._emit("board.repo", repo=remote.target)
+        self._emit("board.remote", remote=remote.to_dict())
+        self._hall_log(f"War target set over ssh: {remote.target}", "ok")
+        self._say_hall("To war!")
+
     def set_repo(self, repo: str) -> None:
         hall = self._hall()
+        if gitops.is_remote(repo.strip()):
+            self._hall_log("That is an ssh war target: set it with its port and key instead.", "error")
+            return
         try:
             resolved = gitops.validate_repo(repo)
         except ValueError as exc:
@@ -376,6 +417,8 @@ class Engine:
                 self._log(hall.id, f"Bad war target: {exc}", "error")
             return
         self._emit("board.repo", repo=resolved)
+        if self.board.remote:
+            self._emit("board.remote", remote=None)
         if hall:
             self._log(hall.id, f"War target set: {resolved}", "ok")
             self._say(hall.id, "To war!")
@@ -658,9 +701,13 @@ class Engine:
                     raise RuntimeError(f"The bundle {d.bundle} is gone.")
                 text, truncated = await asyncio.to_thread(gitops.diff_bundle, Path(d.bundle), d.base, d.head)
             else:
+                self._need_target(d)
                 look = await asyncio.to_thread(self._look, d)
                 self._report(d, look)
-                if not Path(d.repo).is_dir():
+                if gitops.is_remote(d.repo):
+                    if not await asyncio.to_thread(gitops.reachable, d.repo):
+                        raise RuntimeError(f"Can't reach {d.repo} over ssh.")
+                elif not Path(d.repo).is_dir():
                     raise RuntimeError(f"The repo {d.repo} is gone.")
                 head = look.tip or d.head
                 if not await asyncio.to_thread(gitops.has_commit, d.repo, head):
@@ -689,7 +736,8 @@ class Engine:
                 if not changed:
                     self._branch_status(d, d.status, d.note, d.command, d.conflicts)
                 return
-            manual = f"git merge --no-ff {shlex.quote(d.branch)}"
+            self._need_target(d)
+            manual = self._where(d, f"git merge --no-ff {shlex.quote(d.branch)}")
             if not d.base_branch:
                 self._branch_status(
                     d, "delivered",
@@ -730,7 +778,7 @@ class Engine:
                 d, "conflict",
                 f"Merging into {into} would conflict in {len(conflicts)} file(s). Nothing was changed. "
                 "Resolve it yourself:",
-                f"git switch {shlex.quote(into)} && {manual}", conflicts,
+                self._where(d, f"git switch {shlex.quote(into)} && git merge --no-ff {shlex.quote(d.branch)}"), conflicts,
             )
             self._hall_log(f"{d.branch} conflicts with {into} in {', '.join(conflicts)}. Nothing was merged.", "warn")
 
@@ -739,7 +787,12 @@ class Engine:
         """Compare a delivery with the user's repo. Read-only, and runs in a thread, so it must not emit."""
         if d.status == "bundled":
             return Look(None)
-        if not Path(d.repo).is_dir():
+        if gitops.is_remote(d.repo):
+            if not gitops.reachable(d.repo):
+                return Look(None)  # ssh down is not the same as the branch gone: change nothing
+        elif gitops.looks_remote(d.repo):
+            return Look(None)  # an ssh target that is no longer the war target: can't look, so leave it be
+        elif not Path(d.repo).is_dir():
             return Look(None, Change("missing", f"The repo {d.repo} is gone.", f"The repo {d.repo} is gone."))
         tip = gitops.branch_tip(d.repo, d.branch)
         if d.status == "merged":
@@ -758,10 +811,24 @@ class Engine:
                 "orc only merges what it delivered. If you want this, merge it yourself:"
             )
             log = f"{d.branch} was moved outside orc ({d.head[:8]} -> {tip[:8]}); orc won't merge it."
-            return Look(tip, Change("moved", note, log, f"git merge --no-ff {shlex.quote(d.branch)}"))
+            return Look(tip, Change("moved", note, log, Engine._where(d, f"git merge --no-ff {shlex.quote(d.branch)}")))
         if d.status in ("missing", "moved"):
             return Look(tip, Change("delivered", "Back where orc left it.", f"{d.branch} is back where orc left it."))
         return Look(tip)
+
+    @staticmethod
+    def _where(d: Delivery, inner: str) -> str:
+        """A command for the player, run where the delivery's repo is: here, or over ssh on its machine."""
+        if not gitops.looks_remote(d.repo):
+            return inner
+        remote = gitops.get_remote(d.repo) or gitops.Remote(d.repo)
+        return remote.ssh_command(f"cd {shlex.quote(remote.path)} && {inner}")
+
+    @staticmethod
+    def _need_target(d: Delivery) -> None:
+        """A delivery into an ssh repo can only be worked on while that repo is the war target."""
+        if gitops.looks_remote(d.repo) and not gitops.is_remote(d.repo):
+            raise RuntimeError(f"{d.repo} is not the war target any more. Set it again (with its key) to diff or merge there.")
 
     def _report(self, d: Delivery, look: Look) -> bool:
         """Apply what `_look` found. Returns whether anything changed."""

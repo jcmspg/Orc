@@ -91,6 +91,7 @@ class Board:
         self.edges: list[Edge] = []
         self.gold = 0
         self.repo: str | None = None
+        self.remote: dict[str, Any] | None = None  # ssh settings {target, port, key} when `repo` is user@host:path
         self.deliveries: dict[str, Delivery] = {}
 
     def apply(self, e: dict[str, Any]) -> None:
@@ -122,6 +123,8 @@ class Board:
             self.gold += e["amount"]
         elif kind == "board.repo":
             self.repo = e["repo"]
+        elif kind == "board.remote":
+            self.remote = e["remote"]
         elif kind == "branch.delivered":
             d = Delivery.from_dict(e["delivery"])
             self.deliveries[d.id] = d
@@ -137,6 +140,8 @@ class Board:
     def snapshot(self) -> list[dict[str, Any]]:
         """Events that rebuild this board from scratch on a fresh client."""
         events: list[dict[str, Any]] = [{"type": "board.reset"}, {"type": "board.repo", "repo": self.repo}]
+        if self.remote:
+            events.append({"type": "board.remote", "remote": self.remote})
         events += [{"type": "orc.spawned", "orc": o.to_dict()} for o in self.orcs.values()]
         events += [{"type": "edge.added", "edge": e.to_dict()} for e in self.edges]
         if self.gold:

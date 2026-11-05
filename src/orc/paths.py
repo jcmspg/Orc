@@ -44,3 +44,8 @@ def cache_dir() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Caches" / "orc"
     return Path.home() / ".cache" / "orc"
+
+
+def ssh_dir() -> Path:
+    """Where ssh keys live. A remote war target names a key *in here*; it is never a path."""
+    return Path.home() / ".ssh"

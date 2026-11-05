@@ -27,7 +27,8 @@ state-bearing ones; the World (`web/src/world/World.ts`) animates the visual one
 | Event | Fields | Meaning |
 |---|---|---|
 | `board.reset` | | Clear everything: units, edges, gold, war target. Starts a snapshot, or a new village mid-session. |
-| `board.repo` | `repo` | The war target (absolute path or URL), or `null`. |
+| `board.repo` | `repo` | The war target (absolute path, URL or `user@host:path` over ssh), or `null`. |
+| `board.remote` | `remote` | `{target, port, key}` when the war target is an ssh repo (`key` is a file name in `~/.ssh`, never a path or contents), else `null`. Cleared by `board.reset` and by a local `setRepo`. |
 | `orc.spawned` | `orc` (full `Orc`) | A unit exists (in a snapshot, or newly trained). |
 | `edge.added` | `edge {from, to, kind}` | `command` (chieftain → worker) or `review` (worker → reviewer). |
 | `orc.state` | `id, state, task?` | `idle`, `thinking`, `working`, `walking`, `reviewing`, `awaiting`, `failed`. |
@@ -62,6 +63,7 @@ App → server, `{ "op": ..., ... }`:
 | `retry` / `abandon` | `id` (resolves a failed job) |
 | `setAutonomy` | `id`, `on` |
 | `setRepo` | `repo` |
+| `setRemote` | `target` (`user@host:path`), `port?`, `key?` (a file name in `~/.ssh`). Validated by the engine; replies with `board.repo` + `board.remote`, or an error log on the chieftain. |
 | `setCredential` | `name`, `value` (handled by the server, saved via `credentials.py`) |
 | `clearCredential` | `name` |
 | `diff` | `id` (a delivery; the reply is a `branch.diff` event) |
@@ -135,6 +137,34 @@ Delivered branches are the board's `deliveries`, shown in the app's Spoils panel
 - **outside changes**: a branch deleted by the player becomes `missing`, one moved becomes `moved`, one
   whose delivered commit reached the target becomes `merged`. Checked on boot, on `diff` and on `merge`,
   and logged on the chieftain.
+
+## Remote war targets (ssh)
+
+`setRemote` points the war target at a repo on another machine. `gitops` stays the only module that
+touches it, with the same rules as a local repo; git simply runs there through `ssh`.
+
+- **In and out**: code reaches a box only as a bundle (`git bundle create - HEAD` on the remote, streamed back
+  over ssh into the bundle cache, header-checked), never a mounted path. A finished branch goes out as a bundle
+  streamed into a private (`mktemp`, mode 600) scratch file on the remote, `git fetch`ed into
+  `refs/heads/orc/...` without `+`, and the scratch file is removed.
+- **Merge**: the same plumbing (`merge-tree`, `commit-tree`, `update-ref <new> <old>`) and the same `git worktree
+  list --porcelain` check, all executed on the remote. If any step cannot be answered (ssh down, old git) nothing
+  moves. A checked-out target, a conflict or an unreachable remote hand the player a command to paste:
+  `ssh -p N -i ~/.ssh/KEY -t user@host 'cd path && git merge --no-ff orc/...'`.
+- **Validation** (`gitops.parse_remote`, before anything runs): `user@host:path` with host/path restricted to
+  `[A-Za-z0-9._/+@%=,-]`, no leading `-` or `~`, no whitespace, quotes or shell syntax, no `ssh://`; port 1-65535;
+  key a bare file name (`[A-Za-z0-9][A-Za-z0-9._-]*`, so no `/` and no `..`) that must exist as a file in `~/.ssh`.
+  Only `orc/...` branch names are fetched or merged, and revisions can't start with `-`.
+- **ssh**: argv list only; `--` precedes the host; one command string whose every word is `shlex`-quoted for the
+  remote shell. Options: `BatchMode=yes` (never prompts), `ConnectTimeout=10`, `StrictHostKeyChecking=yes`
+  (unknown hosts are refused: connect once from a terminal first), `-a`/`ForwardAgent=no`, `-x`,
+  `ClearAllForwardings=yes`, `PermitLocalCommand=no`, no password auth, `-T`; with a key, `IdentitiesOnly=yes -i
+  ~/.ssh/<name>`. Hard time limits kill a hung ssh (60 s per command, 30 min per bundle transfer). orc passes
+  the key's path to ssh and never reads the key; nothing key-like is logged, evented or saved except its name.
+- **Down is not gone**: an unreachable remote changes no delivery's status (`_look` returns no change); a
+  delivery into an old remote that is no longer the war target is left alone and diff/merge say so.
+- **Persistence**: `remote` is saved beside `repo`. Boot registers it without contacting the host; if the key
+  file has vanished the war target is dropped.
 
 Timing constants (`WALK_S`, `FLIGHT_S`) make the engine wait while the app animates walks and flights,
 so what you see stays in step with what happens.
