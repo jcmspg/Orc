@@ -83,6 +83,14 @@ hand: `git branch --list 'orc/*'`, `git log main..orc/durg/add-login-page-1a2b3c
 
 ## Quick start
 
+The short version (full walkthrough in [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md); if something
+goes wrong see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/orc build-image && cd web && npm install && npm start
+```
+
 Requirements: Linux or macOS, Python 3.11+, Node 20+, Docker, git.
 
 ```bash
@@ -225,6 +233,8 @@ as stand-in boxes and a dummy agent. See [AGENTS.md](AGENTS.md) for conventions 
 
 ### Troubleshooting
 
+More fixes are in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). The common ones:
+
 - **`Electron failed to install correctly`** (npm 11+ with Node 26 can extract Electron incompletely):
 
   ```bash
@@ -281,6 +291,8 @@ docs/              architecture notes and images
 ## Further reading
 
 - [AGENTS.md](AGENTS.md): working on this repo (for humans and AI agents)
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): install, credentials, your first order
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): common problems and fixes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): engine, event protocol, flows
 - [SECURITY.md](SECURITY.md): black-box threat model
 - [CONTRIBUTING.md](CONTRIBUTING.md)

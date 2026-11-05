@@ -35,6 +35,9 @@ ORC_SIM=1 npm start                    # simulation only: no engine, no Docker
 Prefer project binaries by absolute or explicit path (`.venv/bin/...`, `web/node_modules/.bin/...`).
 A bare `npx <tool>` from the wrong directory silently downloads an unrelated version.
 
+Setup walkthrough: `docs/GETTING_STARTED.md`. When a run fails (engine offline, missing credentials,
+missing image), check `docs/TROUBLESHOOTING.md` first and extend it when you find a new failure mode.
+
 ## Invariants (don't break these)
 
 1. **Never mount host paths into a box.** Code enters only as a git bundle (`docker cp`) and leaves

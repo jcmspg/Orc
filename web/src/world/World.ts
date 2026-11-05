@@ -150,6 +150,7 @@ export class World {
     this.peons.set(orc.id, peon);
     // A snapshot or a reconnect can bring orcs that are already busy.
     if (orc.state !== "idle") peon.setState(orc.state);
+    peon.setSelected(board.getState().selected.includes(orc.id));
     if (animate) {
       const peonScale = peon.root.scale.x;
       site.hut.scale.setScalar(0.01);

@@ -1,5 +1,8 @@
 # Architecture
 
+New here? [GETTING_STARTED.md](GETTING_STARTED.md) covers setup; [TROUBLESHOOTING.md](TROUBLESHOOTING.md) covers
+things that break (engine offline, missing credentials or image).
+
 ```
 ┌──────────── desktop app (web/) ────────────┐        ┌────────────── engine (src/orc/) ───────────────┐
 │ Electron shell ── starts `orc serve`        │        │ server.py   FastAPI, one WebSocket: /ws         │
