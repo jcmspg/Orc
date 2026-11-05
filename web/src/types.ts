@@ -83,6 +83,17 @@ export interface Delivery {
   at: number;
 }
 
+/**
+ * The war target when it is a repo on another machine, reached with ssh. `key` is the *name* of a
+ * file in the player's ~/.ssh (never a path or its contents); `port` and `key` are null for defaults.
+ */
+export interface Remote {
+  /** `user@host:path`, the same string as `board.repo`. */
+  target: string;
+  port: number | null;
+  key: string | null;
+}
+
 /** Agent credentials the engine can save for black boxes. Values never reach the app. */
 export type CredentialName =
   | "CLAUDE_CODE_OAUTH_TOKEN"
@@ -96,6 +107,7 @@ export type OrcEvent =
   | { type: "app.credentials"; status: Record<CredentialName, CredentialStatus>; error?: string }
   | { type: "board.reset" }
   | { type: "board.repo"; repo: string | null }
+  | { type: "board.remote"; remote: Remote | null }
   | { type: "orc.spawned"; orc: Orc }
   | { type: "edge.added"; edge: Edge }
   | { type: "orc.state"; id: string; state: OrcState; task?: string | null }
@@ -131,6 +143,8 @@ export interface Engine {
   abandon(id: string): void;
   setAutonomy(id: string, on: boolean): void;
   setRepo(repo: string): void;
+  /** Point the war target at a repo over ssh. The engine validates everything and answers with `board.repo` + `board.remote`, or a log line. */
+  setRemote(target: string, port: number | null, key: string | null): void;
   /** Ask for a delivery's diff; it arrives as a `branch.diff` event. */
   diff(id: string): void;
   /** Merge a delivery into its base branch if that's safe; the outcome arrives as `branch.merged` or `branch.status`. */

@@ -73,6 +73,8 @@ function SpoilsItem({ delivery: d }: { delivery: Delivery }) {
     engine.merge(d.id);
   };
   const into = d.baseBranch;
+  const remote = useBoard((s) => s.remote);
+  const host = remote && remote.target === d.repo ? remote.target.slice(0, remote.target.indexOf(":")) : null;
 
   return (
     <li className={`spoil st-${d.status}`}>
@@ -87,6 +89,7 @@ function SpoilsItem({ delivery: d }: { delivery: Delivery }) {
         {owner ? <span className={`r-${owner.role}`}>{owner.name}</span> : <span>a lost peon</span>}
         <span>{d.stat || "no stat"}</span>
         <span>{into ? <>from {into}</> : "detached HEAD"}</span>
+        {host && <span title={d.repo}>on {host}</span>}
       </div>
       {d.status === "merged" && d.mergeCommit && (
         <p className="spoil-note ok-text">
@@ -108,11 +111,14 @@ function SpoilsItem({ delivery: d }: { delivery: Delivery }) {
       {confirming ? (
         <div className="pending confirm">
           <p>
-            Merge <code>{d.branch}</code> into <b>{into ?? "?"}</b>?
+            Merge <code>{d.branch}</code> into <b>{into ?? "?"}</b>
+            {host && <> on <b>{host}</b></>}?
           </p>
           <p className="hint">
-            orc writes the merge commit straight onto {into ?? "the branch"}, never into a working tree. If{" "}
-            {into ?? "it"} is checked out somewhere, nothing moves and you get the command instead.
+            orc writes the merge commit straight onto {into ?? "the branch"}, never into a working tree.
+            {host && <> It runs git on {host} over ssh, and your local repo is not touched.</>} If{" "}
+            {into ?? "it"} is checked out somewhere{host && " on that machine"}, nothing moves and you get the command
+            instead.
           </p>
           <div className="row">
             <button className="ok" autoFocus onClick={merge}>
@@ -126,7 +132,7 @@ function SpoilsItem({ delivery: d }: { delivery: Delivery }) {
           <button onClick={() => viewDiff(d.id)}>View diff</button>
           {canMerge(d) && (
             <button className="ok" disabled={merging} onClick={() => setConfirming(true)}>
-              {merging ? "Merging..." : d.status === "conflict" ? "Try merge again" : "Merge"}
+              {merging ? "Merging..." : d.status === "conflict" ? "Try merge again" : host ? "Merge on remote" : "Merge"}
             </button>
           )}
         </div>

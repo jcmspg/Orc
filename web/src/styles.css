@@ -290,6 +290,18 @@ select:focus {
   flex: 1;
   min-width: 0;
 }
+.target.remote .row {
+  margin-top: 4px;
+}
+.target input.port {
+  flex: 0 0 56px;
+}
+.pill.rs-on {
+  color: var(--ok, #7ac74f);
+}
+.bad-text {
+  color: var(--bad);
+}
 
 /* Barracks */
 .barracks {

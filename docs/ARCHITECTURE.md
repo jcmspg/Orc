@@ -209,5 +209,9 @@ The `newVillage` op overwrites the file with the new default village right away.
 - `web/src/world/World.ts`: builds huts, props and peons from `orc.spawned`, routes visual events to
   `Peon` and `Effects`, owns the RTS camera (auto-fits the village into the space the HUD leaves free).
 - `web/src/world/Peon.ts`: per-state procedural animation; walks for crates/gold; CSS2D labels.
-- `web/src/engine.ts`: the in-app simulation implements the same `Engine` interface with timers; it fakes diffs and both merge outcomes (a checked-out `main`, a free `develop`).
+- `web/src/engine.ts`: the in-app simulation implements the same `Engine` interface with timers; it fakes diffs and both merge outcomes (a checked-out `main`, a free `develop`). `setRemote` is simulated too: it
+  mirrors the engine's validation, "connects" after a beat (a host starting with `down.` fails), and merge commands
+  become `ssh ... 'cd path && git merge ...'`.
+- `web/src/App.tsx` (`RemoteTarget`): the chieftain's SSH war target form (`user@host:path`, port, key *name*;
+  the engine does the real validation). The `remote` store field comes from `board.remote`.
 - `web/src/Spoils.tsx`: the Spoils panel, diff viewer, merge confirmation and copyable command.

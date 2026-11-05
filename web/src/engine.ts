@@ -5,7 +5,7 @@
 // events.
 
 import { board, dispatch } from "./store";
-import type { Backend, Edge, Engine, LogLevel, Orc, OrcState, Pending, Role } from "./types";
+import type { Backend, Edge, Engine, LogLevel, Orc, OrcState, Pending, Remote, Role } from "./types";
 
 type Job = {
   kind: "plan" | "code" | "review" | "chat";
@@ -34,6 +34,16 @@ type SimBranch = { work: SimWork; diff: string; mergedInto: string | null };
 // The simulated repo has `main` checked out and a free `develop` branch, so the
 // simulation shows both outcomes of an in-app merge.
 const SIM_CHECKOUT = "/home/you/war-target";
+const SSH_TARGET = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]:[A-Za-z0-9._/+@%=,][A-Za-z0-9._/+@%=,-]*$/;
+const SSH_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** A command to paste in a terminal, run where the repo is: over ssh when the war target is remote. */
+function whereCmd(remote: Remote | null, cmd: string): string {
+  if (!remote) return cmd;
+  const cut = remote.target.indexOf(":");
+  const flags = `${remote.port ? ` -p ${remote.port}` : ""}${remote.key ? ` -i ~/.ssh/${remote.key}` : ""}`;
+  return `ssh${flags} -t ${remote.target.slice(0, cut)} 'cd ${remote.target.slice(cut + 1)} && ${cmd}'`;
+}
 
 const WALK_MS = 3200;
 
@@ -272,8 +282,37 @@ export class FakeEngine implements Engine {
 
   setRepo(repo: string): void {
     dispatch({ type: "board.repo", repo });
+    if (board.getState().remote) dispatch({ type: "board.remote", remote: null });
     const hall = this.hall();
     if (hall) this.log(hall.id, `War target set: ${repo} (simulated, nothing is touched)`, "ok");
+  }
+
+  /** Mirrors the engine's validation (the real rules live in gitops.parse_remote), then "connects" after a beat. */
+  setRemote(target: string, port: number | null, key: string | null): void {
+    const t = target.trim();
+    const bad =
+      !SSH_TARGET.test(t) || t.includes("://")
+        ? "An ssh target looks like user@host:path/to/repo (no spaces or shell characters)."
+        : port !== null && !(Number.isInteger(port) && port > 0 && port < 65536)
+          ? "The ssh port must be between 1 and 65535."
+          : key && !SSH_KEY.test(key)
+            ? "The ssh key is the name of a file in ~/.ssh, nothing more."
+            : null;
+    if (bad) {
+      this.hallLog(`Bad war target: ${bad}`, "error");
+      return;
+    }
+    this.after(700, () => {
+      if (/(^|[@.])down\./.test(t)) {
+        // Lets you see the failure path: a host starting with "down." is unreachable.
+        this.hallLog(`Bad war target: ${t} is unreachable, or not a git repo with at least one commit (simulated).`, "error");
+        return;
+      }
+      const remote: Remote = { target: t, port, key: key || null };
+      dispatch({ type: "board.repo", repo: t });
+      dispatch({ type: "board.remote", remote });
+      this.hallLog(`War target set over ssh: ${t} (simulated, nothing is contacted)`, "ok");
+    });
   }
 
   // The simulation runs no agents, so it has no use for credentials.
@@ -299,7 +338,9 @@ export class FakeEngine implements Engine {
     const d = board.getState().deliveries.find((x) => x.id === id);
     if (!b || !d || d.status === "merged") return;
     const into = d.baseBranch ?? "main";
-    const manual = `git merge --no-ff ${d.branch}`;
+    const remote = board.getState().remote;
+    const checkout = remote ? remote.target.slice(remote.target.indexOf(":") + 1) : SIM_CHECKOUT;
+    const manual = whereCmd(remote, `git merge --no-ff ${d.branch}`);
     // Branches already merged into the same target that also edited src/index.ts.
     const clash = (target: string) =>
       b.work.touchesIndex &&
@@ -312,18 +353,18 @@ export class FakeEngine implements Engine {
           type: "branch.status",
           id,
           status: conflicts.length ? "conflict" : "delivered",
-          note: `main is checked out in ${SIM_CHECKOUT}, and orc never touches a working tree.${warn} Merge it there yourself:`,
+          note: `main is checked out in ${checkout}, and orc never touches a working tree.${warn} Merge it there yourself:`,
           command: manual,
           conflicts,
         });
-        this.hallLog(`Left ${d.branch} for you: main is checked out in ${SIM_CHECKOUT}. Run: ${manual}`, "warn");
+        this.hallLog(`Left ${d.branch} for you: main is checked out in ${checkout}. Run: ${manual}`, "warn");
       } else if (clash(into)) {
         dispatch({
           type: "branch.status",
           id,
           status: "conflict",
           note: `Merging into ${into} would conflict in 1 file(s). Nothing was changed. Resolve it yourself:`,
-          command: `git switch ${into} && ${manual}`,
+          command: whereCmd(remote, `git switch ${into} && git merge --no-ff ${d.branch}`),
           conflicts: ["src/index.ts"],
         });
         this.hallLog(`${d.branch} conflicts with ${into} in src/index.ts. Nothing was merged.`, "warn");
@@ -379,7 +420,7 @@ export class FakeEngine implements Engine {
         at: Date.now(),
       },
     });
-    const where = `Branch ${work.branch} is in your repo. Look it over and merge it from the spoils.`;
+    const where = `Branch ${work.branch} is in your repo${board.getState().remote ? " (over ssh)" : ""}. Look it over and merge it from the spoils.`;
     this.log(work.owner, where, "ok");
     this.hallLog(`Gold! ${where}`, "ok");
   }

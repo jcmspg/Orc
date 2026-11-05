@@ -71,6 +71,9 @@ export class RemoteEngine implements Engine {
   setRepo(repo: string): void {
     this.send({ op: "setRepo", repo });
   }
+  setRemote(target: string, port: number | null, key: string | null): void {
+    this.send({ op: "setRemote", target, port, key });
+  }
   diff(id: string): void {
     this.send({ op: "diff", id });
   }
