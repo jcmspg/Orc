@@ -15,7 +15,8 @@ lands in your repo as a branch for you to merge.
 
 - [Why orc](#why-orc)
 - [How it plays](#how-it-plays)
-- [Quick start](#quick-start)
+- [Install the packaged app](#install-the-packaged-app)
+- [Quick start](#quick-start-from-source)
 - [Runtimes and credentials](#runtimes-and-credentials)
 - [The black boxes](#the-black-boxes)
 - [Controls](#controls)
@@ -81,9 +82,27 @@ git merge --no-ff orc/durg/add-login-page-1a2b3c
 If the merge would conflict, nothing is merged and the conflicting files are listed. You can also do it all by
 hand: `git branch --list 'orc/*'`, `git log main..orc/durg/add-login-page-1a2b3c`.
 
-## Quick start
+## Install the packaged app
 
-Requirements: Linux or macOS, Python 3.11+, Node 20+, Docker, git.
+Installers (Linux AppImage and `.deb`, macOS `.dmg`, Windows installer) are built by CI and attached to
+each [release](https://github.com/jcmspg/Orc/releases). They bundle the engine, so you don't need Python or Node.
+You do need, on the machine:
+
+- **Docker** (Docker Desktop on Windows/macOS, Docker Engine on Linux), running.
+- **git**, on your `PATH`.
+- Credentials for at least one runtime ([below](#runtimes-and-credentials)).
+
+The first order builds the `orc-peon` Docker image (a few minutes, once). If Docker or git is missing, orc says so in the log
+of the peon that needed it. The builds are unsigned for now: on macOS right-click the app and choose Open the first time,
+on Windows choose "More info, Run anyway" in SmartScreen, and on Linux `chmod +x` the AppImage. See [docs/PACKAGING.md](docs/PACKAGING.md).
+
+orc keeps its data per user: credentials in `~/.config/orc/env`, the village in `~/.local/state/orc/` and bundles in
+`~/.cache/orc/` on Linux; under `~/Library/Application Support/orc` (and `~/Library/Caches/orc`) on macOS; under
+`%APPDATA%\orc`, `%LOCALAPPDATA%\orc` on Windows. `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` override these everywhere.
+
+## Quick start (from source)
+
+Requirements: Linux, macOS or Windows, Python 3.11+, Node 20+, Docker, git.
 
 ```bash
 git clone git@github.com:jcmspg/Orc.git orc && cd orc
@@ -272,6 +291,7 @@ docs/              architecture notes and images
 
 - [AGENTS.md](AGENTS.md): working on this repo (for humans and AI agents)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): engine, event protocol, flows
+- [docs/PACKAGING.md](docs/PACKAGING.md): building installers, signing, release process
 - [SECURITY.md](SECURITY.md): black-box threat model
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 
