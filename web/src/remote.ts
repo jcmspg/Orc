@@ -7,11 +7,14 @@ import type { Backend, CredentialName, Engine, OrcEvent, Role } from "./types";
 export class RemoteEngine implements Engine {
   private ws: WebSocket | null = null;
   private attempt = 0;
+  private reconnect: number | null = null;
+  private stopped = false;
 
   constructor(private readonly url: string) {}
 
   start(): void {
     if (this.ws) return;
+    this.stopped = false;
     board.setState({ link: "connecting" });
     const ws = new WebSocket(this.url);
     this.ws = ws;
@@ -19,14 +22,29 @@ export class RemoteEngine implements Engine {
       this.attempt = 0;
       board.setState({ link: "live" });
     };
-    ws.onmessage = (m) => dispatch(JSON.parse(m.data as string) as OrcEvent);
+    ws.onmessage = (m) => {
+      try {
+        dispatch(JSON.parse(m.data as string) as OrcEvent);
+      } catch (err) {
+        console.error("orc: dropped an unreadable event", err);
+      }
+    };
     ws.onclose = () => {
       this.ws = null;
       board.setState({ link: "offline" });
+      if (this.stopped) return;
       // The server may still be starting (Electron launches it), so keep trying.
       const delay = Math.min(5000, 400 * 2 ** this.attempt++);
-      window.setTimeout(() => this.start(), delay);
+      this.reconnect = window.setTimeout(() => this.start(), delay);
     };
+  }
+
+  /** Close the connection and stop reconnecting (a hot-reloaded module would otherwise leave this one running). */
+  stop(): void {
+    this.stopped = true;
+    if (this.reconnect !== null) window.clearTimeout(this.reconnect);
+    this.reconnect = null;
+    this.ws?.close();
   }
 
   spawn(role: Role, backend: Backend): void {

@@ -20,17 +20,31 @@ from orc.runtimes import runtime_for
 from orc.sandbox import DockerSandbox
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+CLIENT_BACKLOG = 10_000  # events a client may fall behind by before it is cut off
+
+
+class Client:
+    """One connected app: its event queue, and a flag raised if it fell too far behind."""
+
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(CLIENT_BACKLOG)
+        self.dropped = asyncio.Event()
 
 
 class Hub:
     """Fans every event out to each connected client's queue, in order."""
 
     def __init__(self) -> None:
-        self.clients: set[asyncio.Queue[dict[str, Any]]] = set()
+        self.clients: set[Client] = set()
 
     def broadcast(self, event: dict[str, Any]) -> None:
-        for q in self.clients:
-            q.put_nowait(event)
+        for client in list(self.clients):
+            try:
+                client.queue.put_nowait(event)
+            except asyncio.QueueFull:
+                # A stalled client must not grow memory without bound. It reconnects and gets a fresh snapshot.
+                self.clients.discard(client)
+                client.dropped.set()
 
 
 def default_engine(emit: Emit) -> Engine:
@@ -109,18 +123,23 @@ def create_app(
             return
         await sock.accept()
         engine = state["engine"]
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        client = Client()
         # Snapshot and subscribe with no await in between, so no event is missed.
         for event in engine.board.snapshot():
-            queue.put_nowait(event)
-        queue.put_nowait(credentials_event())
-        hub.clients.add(queue)
+            client.queue.put_nowait(event)
+        client.queue.put_nowait(credentials_event())
+        hub.clients.add(client)
 
         async def pump() -> None:
             while True:
-                await sock.send_json(await queue.get())
+                await sock.send_json(await client.queue.get())
+
+        async def cut_off() -> None:
+            await client.dropped.wait()
+            await sock.close(code=1013)  # try again later
 
         sender = asyncio.create_task(pump())
+        watcher = asyncio.create_task(cut_off())
         try:
             while True:
                 op = await sock.receive_json()
@@ -131,8 +150,9 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
-            hub.clients.discard(queue)
+            hub.clients.discard(client)
             sender.cancel()
+            watcher.cancel()
 
     def handle_credential(op: dict[str, Any]) -> None:
         name = str(op.get("name", ""))

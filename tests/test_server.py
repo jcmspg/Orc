@@ -100,3 +100,23 @@ def test_diff_and_merge_ops_reach_the_engine(monkeypatch):
         ws.send_json({"op": "spawn", "role": "tester", "backend": "claude"})
         assert ws.receive_json()["type"] == "orc.spawned"  # ops are handled in order
     assert calls == [("diff", "abc123"), ("merge", "abc123")]
+
+
+def test_hub_cuts_off_a_client_that_falls_too_far_behind(monkeypatch):
+    import asyncio
+
+    from orc import server
+
+    monkeypatch.setattr(server, "CLIENT_BACKLOG", 2)
+
+    async def scenario():
+        hub, slow, fast = server.Hub(), server.Client(), server.Client()
+        hub.clients |= {slow, fast}
+        for i in range(3):
+            hub.broadcast({"type": "orc.say", "n": i})
+            fast.queue.get_nowait() if fast.queue.qsize() else None
+        return hub, slow, fast
+
+    hub, slow, fast = asyncio.run(scenario())
+    assert slow.dropped.is_set() and slow not in hub.clients
+    assert not fast.dropped.is_set() and fast in hub.clients

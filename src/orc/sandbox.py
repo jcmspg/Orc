@@ -8,7 +8,6 @@ can break the box but never the user's machine.
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import secrets
 from pathlib import Path
@@ -126,7 +125,6 @@ class DockerSandbox:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=STREAM_LIMIT,
-            env=os.environ.copy(),
         )
         assert proc.stdout is not None
         lines: list[str] = []

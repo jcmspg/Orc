@@ -287,10 +287,10 @@ class Engine:
             try:
                 await (self.show_diff if kind == "diff" else self.merge)(oid)
             except Exception as exc:  # an op must never take the client's connection down with it
-                self._hall_log(f"The {kind} failed unexpectedly: {exc or exc.__class__.__name__}", "error")
-                self._branch_status(self.board.deliveries[oid], self.board.deliveries[oid].status,
-                                    f"The {kind} failed unexpectedly: {exc or exc.__class__.__name__}",
-                                    self.board.deliveries[oid].command, self.board.deliveries[oid].conflicts)
+                d = self.board.deliveries[oid]
+                msg = f"The {kind} failed unexpectedly: {exc or exc.__class__.__name__}"
+                self._hall_log(msg, "error")
+                self._branch_status(d, d.status, msg, d.command, d.conflicts)
 
     # --- player actions ---
 
@@ -553,6 +553,7 @@ class Engine:
         orc = self.board.orcs[oid]
         work = self.works.get(job.work_id or "")
         if work is None or work.bundle is None:
+            self._log(oid, f"Nothing to review: the branch for \"{job.task}\" is gone.", "warn")
             raise Abort
         author = self.board.orcs[work.owner]
         self._state(oid, "reviewing", f"Review: {job.task}")
