@@ -19,6 +19,10 @@ from dataclasses import dataclass, field
 from collections.abc import Iterable
 from pathlib import Path
 
+from orc import paths
+
+
+GIT_MISSING = "git isn't installed (or isn't on PATH). Install it from https://git-scm.com/downloads and restart orc."
 URL_RE = re.compile(r"^(https?://|git@|ssh://)")
 DIFF_LIMIT = 400_000  # bytes of diff sent to the app; anything past this is cut and flagged
 HEAD_BUNDLE_REUSE_S = 600  # jobs starting from the same commit within this share one bundle of it
@@ -26,8 +30,7 @@ BUNDLE_MAX_AGE_S = 3600  # unreferenced bundles older than this are swept
 
 
 def cache_dir() -> Path:
-    base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    path = base / "orc"
+    path = paths.cache_dir()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -43,7 +46,10 @@ def is_url(repo: str) -> bool:
 
 
 def _run(repo: str, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=False)
+    try:
+        return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        raise RuntimeError(GIT_MISSING) from None
 
 
 def _git(repo: str, *args: str) -> str:

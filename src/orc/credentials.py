@@ -13,6 +13,9 @@ import re
 import shlex
 from pathlib import Path
 
+from orc import paths
+
+
 # Only these names can be saved, so the app can't be used to write arbitrary variables.
 KNOWN = {
     "CLAUDE_CODE_OAUTH_TOKEN": "Claude subscription token",
@@ -29,8 +32,7 @@ _sources: dict[str, str] = {}
 
 
 def env_path() -> Path:
-    base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base / "orc" / "env"
+    return paths.config_dir() / "env"
 
 
 def _read() -> dict[str, str]:
@@ -120,5 +122,8 @@ def _rewrite(name: str, new_line: str | None) -> None:
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(kept) + ("\n" if kept else ""))
-    os.chmod(tmp, 0o600)
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass  # Windows has no POSIX modes; the profile directory is already per-user
     os.replace(tmp, path)

@@ -39,26 +39,19 @@ def test_client_gets_snapshot_then_live_events():
 def test_engine_stops_itself_when_the_app_dies(monkeypatch):
     import asyncio
     import os
-    import signal
+    import sys
     import subprocess
 
     from orc import server
 
-    dead = subprocess.Popen(["true"])
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
     dead.wait()  # a PID that no longer exists
     monkeypatch.setenv("ORC_PARENT_PID", str(dead.pid))
     sent = []
-    real_kill = os.kill
-
-    def fake_kill(pid, sig):
-        if sig == signal.SIGTERM:
-            sent.append(pid)
-        else:
-            real_kill(pid, sig)
-
-    monkeypatch.setattr(server.os, "kill", fake_kill)
+    monkeypatch.setattr(server, "stop_self", lambda: sent.append(True))
     asyncio.run(asyncio.wait_for(server.watch_parent(interval=0.01), timeout=2))
-    assert sent == [os.getpid()]
+    assert sent == [True]
+    assert server.pid_alive(os.getpid())
 
 
 def test_unknown_ops_are_ignored():

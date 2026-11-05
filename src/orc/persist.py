@@ -14,14 +14,14 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from orc import paths
 from orc.board import DELIVERY_STATUSES, Board, Delivery, Edge, Orc
 
 VERSION = 1
 
 
 def state_path() -> Path:
-    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
-    return base / "orc" / "board.json"
+    return paths.state_dir() / "board.json"
 
 
 @dataclass
