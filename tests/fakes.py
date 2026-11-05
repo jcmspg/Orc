@@ -23,6 +23,7 @@ class LocalSandbox:
         self.root = Path(tempfile.mkdtemp(prefix="orc-box-"))
         (self.root / "tmp").mkdir()
         self.destroyed = False
+        self.killed = 0
         LocalSandbox.created.append(self)
 
     @classmethod
@@ -67,6 +68,9 @@ class LocalSandbox:
     async def copy_out(self, src: str, host_path: Path) -> None:
         host_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(self._map(src), host_path)
+
+    async def kill_processes(self) -> None:
+        self.killed += 1  # the real thing signals the box's processes; here they are host processes
 
     async def destroy(self) -> None:
         self.destroyed = True

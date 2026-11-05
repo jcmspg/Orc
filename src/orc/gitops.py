@@ -11,18 +11,29 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
+from collections.abc import Iterable
 from pathlib import Path
 
 URL_RE = re.compile(r"^(https?://|git@|ssh://)")
 DIFF_LIMIT = 400_000  # bytes of diff sent to the app; anything past this is cut and flagged
+HEAD_BUNDLE_REUSE_S = 600  # jobs starting from the same commit within this share one bundle of it
+BUNDLE_MAX_AGE_S = 3600  # unreferenced bundles older than this are swept
 
 
 def cache_dir() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     path = base / "orc"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def bundles_dir() -> Path:
+    path = cache_dir() / "bundles"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -74,6 +85,46 @@ def bundle_head(repo: str, out: Path) -> str | None:
     branch = head_branch(repo)
     _git(repo, "bundle", "create", str(out), "HEAD")
     return branch
+
+
+def head_bundle(repo: str) -> tuple[Path, str | None]:
+    """A bundle of HEAD for a box to clone, shared by jobs that start from the same commit.
+
+    Bundling walks the whole history, so on a big repo it is worth doing once for
+    the plan, every coder and every reviewer. Returns the bundle and the branch HEAD is on.
+    """
+    sha = _git(repo, "rev-parse", "HEAD")
+    path = bundles_dir() / f"head-{sha}.bundle"
+    branch = head_branch(repo)
+    try:
+        if time.time() - path.stat().st_mtime < HEAD_BUNDLE_REUSE_S:
+            return path, branch
+    except OSError:
+        pass
+    tmp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        bundle_head(repo, tmp)
+        os.replace(tmp, path)  # atomic: a concurrent job sees the old bundle or the new one, never half of one
+    finally:
+        tmp.unlink(missing_ok=True)
+    prune_bundles(prefix="head-")
+    return path, branch
+
+
+def prune_bundles(keep: Iterable[str | Path] = (), *, prefix: str = "", max_age_s: float = BUNDLE_MAX_AGE_S) -> int:
+    """Delete bundles older than `max_age_s` that aren't in `keep`. Returns how many went."""
+    kept = {Path(k).resolve() for k in keep}
+    now = time.time()
+    removed = 0
+    for f in bundles_dir().iterdir():
+        try:
+            if not f.name.startswith(prefix) or f.resolve() in kept or now - f.stat().st_mtime < max_age_s:
+                continue
+            f.unlink()
+            removed += 1
+        except OSError:
+            pass  # gone already, or not ours to remove
+    return removed
 
 
 def fetch_branch(repo: str, bundle: Path, branch: str) -> None:

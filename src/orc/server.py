@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 import os
 import signal
 from collections.abc import AsyncIterator, Callable
@@ -19,6 +20,7 @@ from orc.persist import BoardStore
 from orc.runtimes import runtime_for
 from orc.sandbox import DockerSandbox
 
+log = logging.getLogger(__name__)
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 CLIENT_BACKLOG = 10_000  # events a client may fall behind by before it is cut off
 
@@ -142,11 +144,19 @@ def create_app(
         watcher = asyncio.create_task(cut_off())
         try:
             while True:
-                op = await sock.receive_json()
-                if op.get("op") in ("setCredential", "clearCredential"):
-                    handle_credential(op)
-                else:
-                    await engine.handle(op)
+                try:
+                    op = await sock.receive_json()
+                except ValueError:  # not JSON: ignore it and keep listening
+                    continue
+                if not isinstance(op, dict):
+                    continue
+                try:
+                    if op.get("op") in ("setCredential", "clearCredential"):
+                        handle_credential(op)
+                    else:
+                        await engine.handle(op)  # reports its own failures
+                except Exception:
+                    log.exception("op %r failed", op.get("op"))
         except WebSocketDisconnect:
             pass
         finally:
@@ -163,6 +173,9 @@ def create_app(
                 credentials.clear(name)
         except ValueError as exc:
             hub.broadcast(credentials_event(str(exc)))
+            return
+        except OSError as exc:
+            hub.broadcast(credentials_event(f"Couldn't save the credential: {exc.strerror or exc}"))
             return
         hub.broadcast(credentials_event())
 

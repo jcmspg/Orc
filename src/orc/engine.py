@@ -33,6 +33,7 @@ from orc.sandbox import WORKDIR, Sandbox
 WALK_S = 3.2
 FLIGHT_S = 0.9
 MAX_FIX_ROUNDS = 2
+AGENT_TIMEOUT_S = 30 * 60  # one agent run; a hung CLI otherwise parks its orc forever
 SAVE_DELAY_S = 1.0
 
 NAMES = [
@@ -126,6 +127,7 @@ class Engine:
         runtime_for: Callable[[str], Runtime],
         walk_s: float = WALK_S,
         flight_s: float = FLIGHT_S,
+        agent_timeout_s: float = AGENT_TIMEOUT_S,
         rng: random.Random | None = None,
         store: BoardStore | None = None,
     ) -> None:
@@ -135,6 +137,7 @@ class Engine:
         self.runtime_for = runtime_for
         self.walk_s = walk_s
         self.flight_s = flight_s
+        self.agent_timeout_s = agent_timeout_s
         self.rng = rng or random.Random()
         self.queues: dict[str, asyncio.Queue[Job]] = {}
         self.workers: dict[str, asyncio.Task[None]] = {}
@@ -161,6 +164,7 @@ class Engine:
             saved = self.store.load() if self.store else None
         except ValueError as exc:
             saved, problem = None, str(exc)
+        self._sweep_bundles(saved)
         if saved and saved.orcs:
             self._restore(saved)
             return
@@ -168,6 +172,19 @@ class Engine:
         hall = self._hall()
         if problem and hall:
             self._log(hall.id, f"{problem} Starting a new village.", "error")
+
+    @staticmethod
+    def _sweep_bundles(saved: Saved | None) -> None:
+        """Drop bundles nothing needs: leftovers of work that died with a previous run.
+
+        Only a `bundled` delivery (a remote repo's branch) has no other copy. The age limit
+        spares anything another running orc may still be using.
+        """
+        keep = [d.bundle for d in saved.deliveries if d.status == "bundled" and d.bundle] if saved else []
+        try:
+            gitops.prune_bundles(keep)
+        except OSError:
+            pass
 
     def _found_village(self) -> None:
         """The default village a first launch starts with."""
@@ -195,6 +212,9 @@ class Engine:
                 fut.cancel()
             futures.clear()
         await asyncio.gather(*(w.box.destroy() for w in self.works.values() if w.box), return_exceptions=True)
+        for w in self.works.values():
+            if w.bundle:
+                w.bundle.unlink(missing_ok=True)
         self.works.clear()
         self.workers.clear()
         self.queues.clear()
@@ -259,12 +279,23 @@ class Engine:
         self._seq = max((int(m.group(1)) for o in saved.orcs if (m := re.fullmatch(r"orc-(\d+)", o.id))), default=0)
         self._slots = sum(1 for o in saved.orcs if o.role != "chieftain")
 
-    async def handle(self, op: dict[str, Any]) -> None:
-        """Apply one command from a client."""
+    async def handle(self, op: Any) -> None:
+        """Apply one command from a client. A bad op is reported, never raised: it must not cost the client its connection."""
+        if self._resetting or not isinstance(op, dict):
+            return  # a reset is replacing the village these ops refer to; or not an op at all
+        try:
+            await self._dispatch(op)
+        except Exception as exc:
+            kind = str(op.get("op", "?"))
+            msg = f"The {kind} op failed unexpectedly: {exc or exc.__class__.__name__}"
+            self._hall_log(msg, "error")
+            d = self.board.deliveries.get(str(op.get("id", "")))
+            if kind in ("diff", "merge") and d:  # the app is waiting on an answer for this branch
+                self._branch_status(d, d.status, msg, d.command, d.conflicts)
+
+    async def _dispatch(self, op: dict[str, Any]) -> None:
         kind = op.get("op")
         oid = str(op.get("id", ""))
-        if self._resetting:
-            return  # the village these ops refer to is going away
         if kind == "newVillage":
             await self.new_village()
         elif kind == "spawn" and op.get("role") in ROLES and op.get("backend") in BACKENDS:
@@ -284,13 +315,7 @@ class Engine:
         elif kind == "setRepo":
             self.set_repo(str(op.get("repo", "")))
         elif kind in ("diff", "merge") and oid in self.board.deliveries:
-            try:
-                await (self.show_diff if kind == "diff" else self.merge)(oid)
-            except Exception as exc:  # an op must never take the client's connection down with it
-                d = self.board.deliveries[oid]
-                msg = f"The {kind} failed unexpectedly: {exc or exc.__class__.__name__}"
-                self._hall_log(msg, "error")
-                self._branch_status(d, d.status, msg, d.command, d.conflicts)
+            await (self.show_diff if kind == "diff" else self.merge)(oid)
 
     # --- player actions ---
 
@@ -445,14 +470,13 @@ class Engine:
             self._log(oid, "No peons to command. Train some coders first.", "warn")
             raise Abort
 
-        runtime = self.runtime_for(orc.backend)
         async with self._box(f"{orc.name}-plan") as box:
             self._log(oid, "Reading the repo in a black box...")
             await self._clone_repo(box, repo)
-            reply = await runtime.run(
+            reply = await self._agent(
+                oid,
                 box,
                 prompts.plan(job.task, [(w.name, w.role) for w in workers]),
-                self._logger(oid),
                 kind="plan",
                 hints={"task": job.task, "workers": [w.name for w in workers]},
             )
@@ -519,9 +543,7 @@ class Engine:
             self._log(oid, f"Cloned the repo at {work.base[:8]}{on} onto {work.branch}.")
 
         prompt = prompts.fix(orc.name, job.task, job.findings) if fixing else prompts.code(orc.name, orc.role, job.task)
-        summary = await self.runtime_for(orc.backend).run(
-            work.box, prompt, self._logger(oid), kind="code", hints={"task": job.task}
-        )
+        summary = await self._agent(oid, work.box, prompt, kind="code", hints={"task": job.task})
         # Runtimes stream the agent's messages already; only add the summary if it wasn't shown.
         last = summary.strip().splitlines()[-1][:200] if summary.strip() else ""
         recent = [line["text"].rstrip("…")[:60] for line in orc.log[-5:]]
@@ -534,7 +556,7 @@ class Engine:
         _, stat = await work.box.exec(["git", "diff", "--shortstat", f"{work.base}..HEAD"])
         _, head = await work.box.exec(["git", "rev-parse", "HEAD"])
         work.stat, work.head = stat.strip(), head.strip()
-        work.bundle = gitops.cache_dir() / "bundles" / f"{work.id}.bundle"
+        work.bundle = gitops.bundles_dir() / f"{work.id}.bundle"
         await work.box.exec(["git", "bundle", "create", "/tmp/out.bundle", work.branch])
         await work.box.copy_out("/tmp/out.bundle", work.bundle)
         self._log(oid, f"Exported {work.branch} ({stat.strip() or f'{commits} commits'}).", "ok")
@@ -562,10 +584,10 @@ class Engine:
         async with self._box(f"{orc.name}-review") as box:
             await box.copy_in(work.bundle, "/tmp/work.bundle")
             await box.exec(["git", "clone", "-q", "-b", work.branch, "/tmp/work.bundle", WORKDIR], workdir=None)
-            reply = await self.runtime_for(orc.backend).run(
+            reply = await self._agent(
+                oid,
                 box,
                 prompts.review(job.task, work.base),
-                self._logger(oid),
                 kind="review",
                 hints={"attempt": job.attempt},
             )
@@ -599,15 +621,16 @@ class Engine:
             base_branch=work.base_branch,
             head=work.head,
             stat=work.stat,
-            bundle=str(work.bundle) if work.bundle else None,
             at=int(time.time() * 1000),
         )
         if work.bundle and not gitops.is_url(repo):
             await asyncio.to_thread(gitops.fetch_branch, repo, work.bundle, work.branch)
+            work.bundle.unlink(missing_ok=True)  # the branch lives in the repo now
             where = f"Branch {work.branch} is in your repo. Look it over and merge it from the spoils."
         else:
             where = f"Branch {work.branch} is bundled at {work.bundle} (remote repos can't be fetched into)."
             delivery.status = "bundled"
+            delivery.bundle = str(work.bundle) if work.bundle else None  # the only copy: keep it
             delivery.note = "The war target is a remote repo, so the branch stays in a bundle. Fetch it into a clone:"
             delivery.command = f"git fetch {shlex.quote(str(work.bundle))} {shlex.quote(f'{work.branch}:{work.branch}')}"
         self._emit("branch.delivered", delivery=delivery.to_dict())
@@ -766,10 +789,33 @@ class Engine:
 
     async def _drop_work(self, job: Job) -> None:
         work = self.works.pop(job.work_id or "", None)
-        if work and work.box:
-            await work.box.destroy()
+        if work:
+            if work.bundle:
+                work.bundle.unlink(missing_ok=True)
+            if work.box:
+                await work.box.destroy()
 
     # --- box helpers ---
+
+    async def _agent(self, oid: str, box: Sandbox, prompt: str, *, kind: str, hints: dict[str, Any]) -> str:
+        """Run the orc's agent in a box, giving up if it never finishes.
+
+        The timeout surfaces as an ordinary failure, so the player gets Retry or Abandon.
+        The agent is killed first, so a retry in the same box doesn't race its leftovers.
+        """
+        orc = self.board.orcs[oid]
+        try:
+            async with asyncio.timeout(self.agent_timeout_s) as limit:
+                return await self.runtime_for(orc.backend).run(box, prompt, self._logger(oid), kind=kind, hints=hints)
+        except TimeoutError:
+            if not limit.expired():
+                raise  # the runtime's own timeout, not ours
+        try:
+            await asyncio.shield(box.kill_processes())
+        except Exception:  # best effort: the box may already be gone
+            pass
+        waited = f"{self.agent_timeout_s / 60:g} minutes" if self.agent_timeout_s >= 60 else f"{self.agent_timeout_s:g} seconds"
+        raise RuntimeError(f"{orc.name} was still working after {waited}, so orc stopped the agent.")
 
     @asynccontextmanager
     async def _box(self, label: str):
@@ -789,12 +835,8 @@ class Engine:
             _, ref = await box.exec(["git", "symbolic-ref", "-q", "HEAD"], check=False)
             base_branch = ref.strip().removeprefix("refs/heads/") or None
         else:
-            bundle = gitops.cache_dir() / "bundles" / f"head-{secrets.token_hex(4)}.bundle"
-            base_branch = await asyncio.to_thread(gitops.bundle_head, repo, bundle)
-            try:
-                await box.copy_in(bundle, "/tmp/repo.bundle")
-            finally:
-                bundle.unlink(missing_ok=True)
+            bundle, base_branch = await asyncio.to_thread(gitops.head_bundle, repo)
+            await box.copy_in(bundle, "/tmp/repo.bundle")
             await box.exec(["git", "clone", "-q", "/tmp/repo.bundle", WORKDIR], workdir=None)
         _, base = await box.exec(["git", "rev-parse", "HEAD"])
         if branch:

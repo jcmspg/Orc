@@ -40,6 +40,10 @@ class Sandbox(Protocol):
 
     async def copy_out(self, src: str, host_path: Path) -> None: ...
 
+    async def kill_processes(self) -> None:
+        """Stop everything running in the box, keeping the box and its files."""
+        ...
+
     async def destroy(self) -> None: ...
 
 
@@ -128,12 +132,16 @@ class DockerSandbox:
         )
         assert proc.stdout is not None
         lines: list[str] = []
-        async for raw in proc.stdout:
-            line = raw.decode(errors="replace").rstrip("\n")
-            lines.append(line)
-            if on_line:
-                on_line(line)
-        code = await proc.wait()
+        try:
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").rstrip("\n")
+                lines.append(line)
+                if on_line:
+                    on_line(line)
+            code = await proc.wait()
+        finally:
+            if proc.returncode is None:  # cancelled or timed out: don't leave the docker client behind
+                proc.kill()
         out = "\n".join(lines)
         if check and code != 0:
             raise SandboxError(f"`{' '.join(argv[:3])}` failed ({code}): {_tail(out)}")
@@ -145,6 +153,10 @@ class DockerSandbox:
     async def copy_out(self, src: str, host_path: Path) -> None:
         host_path.parent.mkdir(parents=True, exist_ok=True)
         await _run("docker", "cp", f"{self.name}:{src}", str(host_path))
+
+    async def kill_processes(self) -> None:
+        # `kill -9 -1` signals every process the user can, except PID 1 (the box's `sleep`) and itself.
+        await self.exec(["sh", "-c", "kill -9 -1"], check=False, workdir=None)
 
     async def destroy(self) -> None:
         try:
