@@ -83,6 +83,7 @@ class DockerSandbox:
 
     @classmethod
     async def create(cls, label: str, image: str = IMAGE) -> "DockerSandbox":
+        await ensure_image(image)
         name = f"orc-{_slug(label)}-{secrets.token_hex(3)}"
         run = asyncio.ensure_future(_run(
             "docker", "run", "-d",
@@ -201,3 +202,20 @@ async def build_image(image: str = IMAGE, on_line: Callable[[str], None] | None 
             on_line(line)
     if await proc.wait() != 0:
         raise SandboxError("docker build failed:\n" + "\n".join(tail))
+
+
+_build_lock: asyncio.Lock | None = None
+
+
+async def ensure_image(image: str = IMAGE) -> None:
+    """Build the black-box image on first use (packaged installs have no `orc build-image` step to run).
+
+    Only the default image is built: its Dockerfile ships with orc. The first job waits for the build.
+    """
+    global _build_lock
+    if image != IMAGE or await image_exists(image):
+        return
+    _build_lock = _build_lock or asyncio.Lock()
+    async with _build_lock:
+        if not await image_exists(image):
+            await build_image(image)
