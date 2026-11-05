@@ -24,12 +24,12 @@
     "@types/react-dom": "^19.1.6",
     "@types/three": "^0.177.0",
     "@vitejs/plugin-react": "^4.5.2",
-    "electron": "^45.2.1",
+    "electron": "^45.2.3",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   },
   "allowScripts": {
-    "electron@45.2.1": true,
+    "electron@45.2.3": true,
     "esbuild@0.25.12": true
   }
 }
