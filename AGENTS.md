@@ -81,6 +81,7 @@ missing image), check `docs/TROUBLESHOOTING.md` first and extend it when you fin
 | HUD | `web/src/App.tsx`, `web/src/Spoils.tsx` (delivered branches, diff, merge), `web/src/styles.css` |
 | Engine clients | `web/src/remote.ts` (real), `web/src/engine.ts` (simulation), `web/src/engines.ts` (picks one) |
 | Desktop shell | `web/electron/main.cjs` |
+| Packaging | `packaging/`, `scripts/build-engine.py`, `web/package.json` (`build`), `.github/workflows/release.yml`, `docs/PACKAGING.md` |
 
 ## Adding a runtime
 

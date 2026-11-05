@@ -1,0 +1,91 @@
+name: release
+
+# Builds unsigned installers on every OS. Runs on a version tag or by hand.
+# Tags are never created by this workflow. See docs/PACKAGING.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, builder_args: "--linux" }
+          # PyInstaller can't cross-compile, so each mac arch is built on a matching runner.
+          - { name: mac-arm64, os: macos-latest, builder_args: "--mac --arm64" }
+          - { name: mac-x64, os: macos-15-intel, builder_args: "--mac --x64" }
+          - { name: win-x64, os: windows-latest, builder_args: "--win --x64" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install engine dependencies
+        run: python -m pip install -e ".[dev]" pyinstaller
+
+      - name: Engine tests
+        if: runner.os == 'Linux'
+        run: python -m pytest -q
+
+      - name: Freeze the engine
+        run: python scripts/build-engine.py
+
+      - name: Smoke-test the frozen engine
+        run: python scripts/smoke-engine.py dist/engine/orc-engine/orc-engine${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Install app dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Build installers
+        working-directory: web
+        run: npm run dist -- ${{ matrix.builder_args }} --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orc-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            web/release/*.AppImage
+            web/release/*.deb
+            web/release/*.dmg
+            web/release/*.exe
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" installers/*
+          --repo "${{ github.repository }}" --draft --generate-notes
+          --title "orc ${{ github.ref_name }}"

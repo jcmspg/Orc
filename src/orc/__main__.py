@@ -24,8 +24,17 @@ def main() -> None:
         from orc.sandbox import image_exists
         from orc.server import create_app
 
-        if not asyncio.run(image_exists()):
-            print("note: the orc-peon image is missing; run `orc build-image` before giving orders.")
+        import shutil
+
+        from orc.gitops import GIT_MISSING
+        from orc.sandbox import DOCKER_MISSING
+
+        if not shutil.which("git"):
+            print(f"warning: {GIT_MISSING}", flush=True)
+        if not shutil.which("docker"):
+            print(f"warning: {DOCKER_MISSING}", flush=True)
+        elif not asyncio.run(image_exists()):
+            print("note: the orc-peon image is missing; run `orc build-image` before giving orders.", flush=True)
         uvicorn.run(create_app(), host=args.host, port=args.port, log_level="warning")
     elif args.cmd == "build-image":
         from orc.sandbox import build_image

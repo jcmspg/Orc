@@ -40,3 +40,4 @@ secrets.yaml
 .vscode/
 .DS_Store
 .claude/worktrees/
+release/

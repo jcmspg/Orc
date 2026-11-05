@@ -7,6 +7,8 @@ import hmac
 import logging
 import os
 import signal
+import sys
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -65,23 +67,71 @@ def origin_allowed(origin: str | None) -> bool:
     return parsed.scheme in ("http", "https") and parsed.hostname in LOCAL_HOSTS
 
 
-async def watch_parent(interval: float = 2.0) -> None:
-    """If the desktop app that started us dies without stopping us, stop ourselves cleanly.
+def pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # os.kill(pid, 0) would TERMINATE the process on Windows, so ask the OS instead.
+        import ctypes
 
-    SIGTERM to our own process runs uvicorn's normal shutdown, which destroys the black boxes.
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.GetLastError() == 5  # access denied: exists, not ours
+        try:
+            code = ctypes.c_ulong()
+            ok = kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # exists, owned by someone else: still alive
+    return True
+
+
+def stop_self() -> None:
+    """Ask uvicorn to shut down as if we had been sent SIGTERM (which destroys the black boxes).
+
+    raise_signal runs the installed handler in-process on every platform; os.kill(getpid(), SIGTERM)
+    would hard-terminate us on Windows.
     """
+    signal.raise_signal(signal.SIGTERM)
+
+
+async def watch_parent(interval: float = 2.0) -> None:
+    """If the desktop app that started us dies without stopping us, stop ourselves cleanly."""
     pid = int(os.environ.get("ORC_PARENT_PID") or 0)
     if not pid:
         return
     while True:
         await asyncio.sleep(interval)
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            os.kill(os.getpid(), signal.SIGTERM)
+        if not pid_alive(pid):
+            stop_self()
             return
-        except PermissionError:
-            pass  # exists, owned by someone else: still alive
+
+
+def watch_stdin() -> None:
+    """With ORC_STOP_ON_STDIN_EOF=1, stop when stdin closes.
+
+    The desktop app holds our stdin open; closing it is its portable "stop cleanly" request
+    (Windows has no gentle SIGTERM), and it also fires if the app dies.
+    """
+    if not os.environ.get("ORC_STOP_ON_STDIN_EOF"):
+        return
+    loop = asyncio.get_running_loop()
+
+    def wait() -> None:
+        try:
+            while sys.stdin.buffer.read(4096):
+                pass
+        except (OSError, ValueError):
+            pass
+        loop.call_soon_threadsafe(stop_self)
+
+    threading.Thread(target=wait, daemon=True, name="orc-stdin").start()
 
 
 def credentials_event(error: str | None = None) -> dict[str, Any]:
@@ -106,6 +156,7 @@ def create_app(
         engine = engine_factory(hub.broadcast)
         engine.boot()
         state["engine"] = engine
+        watch_stdin()
         watchdog = asyncio.create_task(watch_parent())
         yield
         watchdog.cancel()

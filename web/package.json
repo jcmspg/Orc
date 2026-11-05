@@ -11,13 +11,9 @@
     "dev:app": "ORC_DEV_URL=http://localhost:5173 electron .",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "three": "^0.177.0",
-    "zustand": "^5.0.5"
+    "preview": "vite preview",
+    "dist": "npm run build && electron-builder",
+    "pack": "npm run build && electron-builder --dir"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",
@@ -25,11 +21,79 @@
     "@types/three": "^0.177.0",
     "@vitejs/plugin-react": "^4.5.2",
     "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.177.0",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "zustand": "^5.0.5"
   },
   "allowScripts": {
     "electron@45.2.3": true,
     "esbuild@0.25.12": true
+  },
+  "description": "orc: an RTS for orchestrating AI coding agents in Docker black boxes",
+  "author": {
+    "name": "joao gomes",
+    "email": "joaocmspgomes@gmail.com"
+  },
+  "homepage": "https://github.com/jcmspg/Orc",
+  "build": {
+    "appId": "dev.orc.app",
+    "productName": "orc",
+    "executableName": "orc",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/engine/orc-engine",
+        "to": "engine"
+      }
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Game",
+      "maintainer": "joao gomes <joaocmspgomes@gmail.com>",
+      "artifactName": "orc-${version}-linux-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "artifactName": "orc-${version}-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "orc-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
