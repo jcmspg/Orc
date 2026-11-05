@@ -312,6 +312,8 @@ docs/              architecture notes and images
 - [AGENTS.md](AGENTS.md): working on this repo (for humans and AI agents)
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): install, credentials, your first order
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): common problems and fixes
+- [docs/PACKAGING.md](docs/PACKAGING.md): building and releasing installers
+- [docs/STATUS.md](docs/STATUS.md): current state and next steps
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): engine, event protocol, flows
 - [docs/PACKAGING.md](docs/PACKAGING.md): building installers, signing, release process
 - [SECURITY.md](SECURITY.md): black-box threat model
