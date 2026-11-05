@@ -4,6 +4,7 @@
 // ORC_SIM=1 runs the in-app simulation instead of the real engine.
 // ORC_NO_SERVER=1 skips starting `orc serve` (e.g. when you run it yourself).
 // ORC_PORT picks the engine port (default 47820).
+// Packaged builds start the frozen engine from <resources>/engine/ instead of the dev venv.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -30,18 +31,41 @@ let server = null;
 let quitting = false; // the user confirmed (or the app is being shut down from outside)
 let pageConfirmsQuit = false; // the page registered a quit-confirmation handler
 
-/** Start the Python engine from the repo's venv. If one is already listening, ours just exits. */
+const WIN = process.platform === "win32";
+
+/** The frozen engine shipped in the installer (extraResources), or the repo's venv `orc` in dev. */
+function enginePath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "engine", WIN ? "orc-engine.exe" : "orc-engine");
+  }
+  const venv = path.join(__dirname, "..", "..", ".venv");
+  return WIN ? path.join(venv, "Scripts", "orc.exe") : path.join(venv, "bin", "orc");
+}
+
+/** Start the Python engine. If one is already listening, ours just exits. */
 function startServer() {
   if (!OWN_SERVER) return;
-  const bin = path.join(__dirname, "..", "..", ".venv", "bin", "orc");
+  const bin = enginePath();
   if (!fs.existsSync(bin)) {
     console.warn(`orc: ${bin} not found; start the engine yourself with \`orc serve\`.`);
     return;
   }
   server = spawn(bin, ["serve", "--port", PORT], {
-    stdio: "inherit",
-    // The engine stops itself if this process disappears without stopping it.
-    env: { ...process.env, ORC_SESSION_TOKEN: SESSION, ORC_PARENT_PID: String(process.pid) },
+    // We keep the engine's stdin open; closing it is the portable "stop cleanly" request.
+    stdio: ["pipe", "inherit", "inherit"],
+    windowsHide: true,
+    env: {
+      ...process.env,
+      ORC_SESSION_TOKEN: SESSION,
+      // The engine also stops itself if this process disappears without stopping it.
+      ORC_PARENT_PID: String(process.pid),
+      ORC_STOP_ON_STDIN_EOF: "1",
+    },
+  });
+  server.stdin.on("error", () => {}); // EPIPE if it already exited
+  server.on("error", (err) => {
+    console.warn(`orc: couldn't start the engine (${err.message}).`);
+    server = null;
   });
   server.on("exit", () => {
     server = null;
@@ -155,12 +179,14 @@ app.on("will-quit", (event) => {
   event.preventDefault();
   const proc = server;
   const force = setTimeout(() => {
-    proc.kill("SIGKILL");
+    proc.kill(WIN ? undefined : "SIGKILL");
     app.exit(0);
   }, ENGINE_STOP_TIMEOUT_MS);
   proc.once("exit", () => {
     clearTimeout(force);
     app.exit(0);
   });
-  proc.kill("SIGTERM");
+  // Windows has no gentle SIGTERM (kill() would terminate hard), so ask by closing stdin there.
+  if (WIN) proc.stdin.end();
+  else proc.kill("SIGTERM");
 });
