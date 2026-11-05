@@ -20,6 +20,7 @@ from orc import credentials
 from orc.engine import Emit, Engine
 from orc.persist import BoardStore
 from orc.runtimes import runtime_for
+from orc import sandbox
 from orc.sandbox import DockerSandbox
 
 log = logging.getLogger(__name__)
@@ -52,7 +53,9 @@ class Hub:
 
 
 def default_engine(emit: Emit) -> Engine:
-    return Engine(emit, sandbox_factory=DockerSandbox.create, runtime_for=runtime_for, store=BoardStore())
+    engine = Engine(emit, sandbox_factory=DockerSandbox.create, runtime_for=runtime_for, store=BoardStore())
+    sandbox.image_notice = engine.hall_log  # a first-use image build is slow: say so in the chieftain's log
+    return engine
 
 
 def origin_allowed(origin: str | None) -> bool:

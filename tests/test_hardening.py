@@ -225,3 +225,50 @@ def test_boot_sweeps_orphans_but_keeps_a_bundled_delivery(tmp_path, repo):
 
     run(scenario())
     assert bundle_files() == ["keep.bundle"]
+
+
+# --- first-use image build ---
+
+def test_first_use_image_build_is_announced(monkeypatch):
+    from orc import sandbox
+
+    built, notices = [], []
+    state = {"exists": False}
+
+    async def exists(image=sandbox.IMAGE):
+        return state["exists"]
+
+    async def build(image=sandbox.IMAGE, on_line=None):
+        built.append(image)
+        state["exists"] = True
+
+    monkeypatch.setattr(sandbox, "image_exists", exists)
+    monkeypatch.setattr(sandbox, "build_image", build)
+    monkeypatch.setattr(sandbox, "image_notice", lambda text, level="info": notices.append((level, text)))
+
+    async def twice():
+        await asyncio.gather(sandbox.ensure_image(), sandbox.ensure_image())  # two jobs start together
+
+    run(twice())
+    assert built == [sandbox.IMAGE]  # built once
+    assert [lvl for lvl, _ in notices] == ["warn", "ok"]
+
+
+def test_failed_image_build_is_reported(monkeypatch):
+    import pytest
+
+    from orc import sandbox
+
+    async def exists(image=sandbox.IMAGE):
+        return False
+
+    async def build(image=sandbox.IMAGE, on_line=None):
+        raise sandbox.SandboxError("docker build failed: no network")
+
+    notices = []
+    monkeypatch.setattr(sandbox, "image_exists", exists)
+    monkeypatch.setattr(sandbox, "build_image", build)
+    monkeypatch.setattr(sandbox, "image_notice", lambda text, level="info": notices.append(level))
+    with pytest.raises(sandbox.SandboxError):
+        run(sandbox.ensure_image())
+    assert notices == ["warn", "error"]

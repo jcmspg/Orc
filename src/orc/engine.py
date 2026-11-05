@@ -295,7 +295,7 @@ class Engine:
         except Exception as exc:
             kind = str(op.get("op", "?"))
             msg = f"The {kind} op failed unexpectedly: {exc or exc.__class__.__name__}"
-            self._hall_log(msg, "error")
+            self.hall_log(msg, "error")
             d = self.board.deliveries.get(str(op.get("id", "")))
             if kind in ("diff", "merge") and d:  # the app is waiting on an answer for this branch
                 self._branch_status(d, d.status, msg, d.command, d.conflicts)
@@ -397,18 +397,18 @@ class Engine:
             remote = gitops.parse_remote(str(op.get("target", "")), op.get("port"), op.get("key"))
             transport = await asyncio.to_thread(gitops.probe_remote, remote)
         except ValueError as exc:
-            self._hall_log(f"Bad war target: {exc}", "error")
+            self.hall_log(f"Bad war target: {exc}", "error")
             return
         gitops.register_remote(remote, transport)
         self._emit("board.repo", repo=remote.target)
         self._emit("board.remote", remote=remote.to_dict())
-        self._hall_log(f"War target set over ssh: {remote.target}", "ok")
+        self.hall_log(f"War target set over ssh: {remote.target}", "ok")
         self._say_hall("To war!")
 
     def set_repo(self, repo: str) -> None:
         hall = self._hall()
         if gitops.is_remote(repo.strip()):
-            self._hall_log("That is an ssh war target: set it with its port and key instead.", "error")
+            self.hall_log("That is an ssh war target: set it with its port and key instead.", "error")
             return
         try:
             resolved = gitops.validate_repo(repo)
@@ -751,7 +751,7 @@ class Engine:
                 result = await asyncio.to_thread(gitops.merge, d.repo, d.branch, into, expect=d.head)
             except RuntimeError as exc:
                 self._branch_status(d, d.status, f"Merge failed: {exc}", None, d.conflicts)
-                self._hall_log(f"Couldn't merge {d.branch}: {exc}", "error")
+                self.hall_log(f"Couldn't merge {d.branch}: {exc}", "error")
                 return
         finally:
             self._merging.discard(did)
@@ -760,7 +760,7 @@ class Engine:
         clash = f" It will conflict in {', '.join(conflicts)}." if conflicts else ""
         if result.status == "merged" and result.commit:
             self._emit("branch.merged", id=did, into=into, commit=result.commit)
-            self._hall_log(f"Merged {d.branch} into {into} ({result.commit[:8]}).", "ok")
+            self.hall_log(f"Merged {d.branch} into {into} ({result.commit[:8]}).", "ok")
             self._say_hall("More gold for the horde!")
         elif result.status == "upToDate":
             self._branch_status(d, "merged", f"{into} already has everything from this branch.")
@@ -772,7 +772,7 @@ class Engine:
                 "Merge it there yourself:",
                 manual, conflicts,
             )
-            self._hall_log(f"Left {d.branch} for you: {into} is checked out in {where}. Run: {manual}", "warn")
+            self.hall_log(f"Left {d.branch} for you: {into} is checked out in {where}. Run: {manual}", "warn")
         else:
             self._branch_status(
                 d, "conflict",
@@ -780,7 +780,7 @@ class Engine:
                 "Resolve it yourself:",
                 self._where(d, f"git switch {shlex.quote(into)} && git merge --no-ff {shlex.quote(d.branch)}"), conflicts,
             )
-            self._hall_log(f"{d.branch} conflicts with {into} in {', '.join(conflicts)}. Nothing was merged.", "warn")
+            self.hall_log(f"{d.branch} conflicts with {into} in {', '.join(conflicts)}. Nothing was merged.", "warn")
 
     @staticmethod
     def _look(d: Delivery) -> Look:
@@ -836,7 +836,7 @@ class Engine:
         if not c or (c.status, c.note) == (d.status, d.note):
             return False
         self._branch_status(d, c.status, c.note, c.command)
-        self._hall_log(c.log, "ok" if c.status == "merged" else "warn")
+        self.hall_log(c.log, "ok" if c.status == "merged" else "warn")
         return True
 
     def _branch_status(
@@ -844,7 +844,7 @@ class Engine:
     ) -> None:
         self._emit("branch.status", id=d.id, status=status, note=note, command=command, conflicts=conflicts or [])
 
-    def _hall_log(self, line: str, level: str = "info") -> None:
+    def hall_log(self, line: str, level: str = "info") -> None:
         hall = self._hall()
         if hall:
             self._log(hall.id, line, level)

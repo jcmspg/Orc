@@ -92,7 +92,7 @@ You do need, on the machine:
 - **git**, on your `PATH`.
 - Credentials for at least one runtime ([below](#runtimes-and-credentials)).
 
-The first order builds the `orc-peon` Docker image (a few minutes, once). If Docker or git is missing, orc says so in the log
+The first order builds the `orc-peon` Docker image (a few minutes, once; the chieftain's log says so). If Docker or git is missing, orc says so in the log
 of the peon that needed it. The builds are unsigned for now: on macOS right-click the app and choose Open the first time,
 on Windows choose "More info, Run anyway" in SmartScreen, and on Linux `chmod +x` the AppImage. See [docs/PACKAGING.md](docs/PACKAGING.md).
 

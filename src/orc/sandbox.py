@@ -210,6 +210,13 @@ async def build_image(image: str = IMAGE, on_line: Callable[[str], None] | None 
 
 
 _build_lock: asyncio.Lock | None = None
+# Told (text, level) when a first-use image build starts and ends, so the app can show why the first order is slow.
+image_notice: Callable[[str, str], None] | None = None
+
+
+def _notice(text: str, level: str = "info") -> None:
+    if image_notice:
+        image_notice(text, level)
 
 
 async def ensure_image(image: str = IMAGE) -> None:
@@ -223,4 +230,10 @@ async def ensure_image(image: str = IMAGE) -> None:
     _build_lock = _build_lock or asyncio.Lock()
     async with _build_lock:
         if not await image_exists(image):
-            await build_image(image)
+            _notice("Building the black-box image for the first time. This takes a few minutes, once.", "warn")
+            try:
+                await build_image(image)
+            except SandboxError as exc:
+                _notice(f"Building the black-box image failed: {exc}", "error")
+                raise
+            _notice("The black-box image is ready.", "ok")
